@@ -1,6 +1,7 @@
 #!/bin/bash
 
-EXEC="parallel_solver_mpi"
+# Path to the executable
+EXEC="../bin/parallel_solver_mpi"
 
 # Number of dimensions
 NUM_DIM=2
@@ -18,16 +19,23 @@ M_PROCESSORS=2
 N_PROCESSORS=2
 K_PROCESSORS=1
 
+# Change to the parent directory
+cd ..
+
 # Clean previous build
 make clean
 
 # Compile the program
 make all
 
+# Change back to the original directory
+cd tests
+
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program
-  mpirun -np $NUM_PROCESSES ./$EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
+  mpirun -np $NUM_PROCESSES $EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
 else
   # Compilation failed
   echo "Compilation failed."
 fi
+

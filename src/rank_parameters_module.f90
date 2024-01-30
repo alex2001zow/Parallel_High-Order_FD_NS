@@ -67,7 +67,7 @@ contains
       ! Get the Cartesian coordinates of the current process
       call MPI_Cart_coords(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords, ierr)
 
-      call determine_neighbors(parameters)
+      call determine_moore_neighbors(parameters)
 
    end subroutine setup_rank_parameters
 
@@ -79,7 +79,7 @@ contains
       allocate(parameters%processor_dim(parameters%ndims))
       allocate(parameters%periods(parameters%ndims))
       allocate(parameters%coords(parameters%ndims))
-      allocate(parameters%neighbors(parameters%ndims*2))
+      allocate(parameters%neighbors(3**parameters%ndims-1))
       allocate(parameters%local_size(parameters%ndims))
    end subroutine allocate_rank_parameters
 
@@ -114,7 +114,7 @@ contains
       print *, "Total number of elements:", parameters%total_num_elements
    end subroutine print_rank_parameters
 
-   subroutine determine_neighbors(parameters)
+   subroutine determine_moore_neighbors(parameters)
       type(rank_struct), intent(inout) :: parameters
 
       integer :: ii, global_index, rank_source, rank_dest,test
@@ -134,7 +134,7 @@ contains
 
       call original_MPI_COMM_errhandler(parameters)
 
-   end subroutine determine_neighbors
+   end subroutine determine_moore_neighbors
 
    !> Routine to change the MPI_COMM error handler so we can find neighbors without crashing. We restore the original using original_MPI_COMM_errhandler() when done
    subroutine change_MPI_COMM_errhandler(parameters)
