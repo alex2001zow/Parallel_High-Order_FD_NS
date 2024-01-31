@@ -1,18 +1,21 @@
 module rank_parameters_module
    use mpi
-   use utility_functions_module
+   use utility_functions_module, only : IDX_XD
+   use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    implicit none
 
    private
-   character(len=MPI_MAX_ERROR_STRING) :: error_string
+   !character(len=MPI_MAX_ERROR_STRING) :: error_string
+   !integer :: ierr_string, error_len
+
    integer :: original_errhandler = MPI_ERRHANDLER_NULL
-   integer :: ierr, ierr_string, error_len
+   integer :: ierr = 0
 
-
-   !> Structure to hold the parameters for each rank. Neighbors are stored in the following order: up down left right front back
+   !> Structure to hold the parameters for each rank.
    type rank_struct
       integer :: ndims, total_num_elements
       integer :: rank, world_size, cart_comm
+      integer :: total_number_of_neighbors, effective_number_of_neighbors
       integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), local_size(:)
       logical, allocatable :: periods(:)
    end type rank_struct
@@ -34,6 +37,8 @@ contains
 
       parameters%rank = rank_val
       parameters%world_size = world_size_val
+
+      parameters%total_number_of_neighbors = 3**parameters%ndims
 
       call allocate_rank_parameters(parameters)
 
@@ -67,7 +72,14 @@ contains
       ! Get the Cartesian coordinates of the current process
       call MPI_Cart_coords(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords, ierr)
 
-      call determine_moore_neighbors(parameters)
+      if(parameters%ndims == 2) then
+         call determine_moore_neighbors_2d(parameters)
+      else if(parameters%ndims == 3) then
+         call determine_moore_neighbors_3d(parameters)
+      else
+         print *, "Only 2D and 3D is currently supported"
+         stop
+      endif
 
    end subroutine setup_rank_parameters
 
@@ -79,7 +91,7 @@ contains
       allocate(parameters%processor_dim(parameters%ndims))
       allocate(parameters%periods(parameters%ndims))
       allocate(parameters%coords(parameters%ndims))
-      allocate(parameters%neighbors(3**parameters%ndims-1))
+      allocate(parameters%neighbors(parameters%total_number_of_neighbors))
       allocate(parameters%local_size(parameters%ndims))
    end subroutine allocate_rank_parameters
 
@@ -114,27 +126,81 @@ contains
       print *, "Total number of elements:", parameters%total_num_elements
    end subroutine print_rank_parameters
 
-   subroutine determine_moore_neighbors(parameters)
+   !> Find the neighbors of each rank in a 2D grid. Would like to make it N-D but that is a bit more complicated.
+   subroutine determine_moore_neighbors_2d(parameters)
       type(rank_struct), intent(inout) :: parameters
 
-      integer :: ii, global_index, rank_source, rank_dest,test
+      integer :: ii, jj, global_index, rank_of_coords
+      integer :: indices(parameters%ndims)
 
+      ! Prevent MPI from aborting when we try to find neighbors that do not exist
       call change_MPI_COMM_errhandler(parameters)
 
-      ! Determine the ranks of neighboring processes including corners along each dimension. Still need todo this for corners!
-      do ii = 1, parameters%ndims
-         global_index = IDX_2D(parameters%ndims, ii, 1)
-         call MPI_Cart_shift(parameters%cart_comm, ii-1, 1, rank_source, rank_dest, ierr)
-         parameters%neighbors(global_index) = rank_source
-         parameters%neighbors(global_index+1) = rank_dest
+      ! Determine the ranks of neighboring processes including corners along each dimension.
+      global_index = 1
+      do ii = -1,1,1
+         do jj = -1,1,1
+            indices = parameters%coords + [ii,jj]
+
+            call MPI_Cart_rank(parameters%cart_comm, indices, rank_of_coords, ierr)
+
+            if(ierr /= MPI_SUCCESS) then
+               parameters%neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
+            else if(ii == 0 .AND. jj == 0) then
+               parameters%neighbors(global_index) = neighbor_current_rank ! This is the current rank
+            else
+               parameters%neighbors(global_index) = rank_of_coords
+            endif
+            global_index = global_index + 1
+         end do
       end do
 
-      ! WE NEED TO SETUP THE NEIGHBOR DETECTION USING OFFSETS! WE USE AN OFFSET OF -1, +1 per coordinate to check for the neighbors. Then we store it! REMEBER TO CHANGE THE ALLOCATION OF NEIGHBORS TO SOMETHING LARGER THAT MATCHES!
-      call MPI_Cart_rank(parameters%cart_comm, [1,1], test, ierr)
-
+      ! Restore the original error handler to abort on errors
       call original_MPI_COMM_errhandler(parameters)
 
-   end subroutine determine_moore_neighbors
+   end subroutine determine_moore_neighbors_2d
+
+   !> Find the neighbors of each rank in a 3D grid. Would like to make it N-D but that is a bit more complicated.
+   subroutine determine_moore_neighbors_3d(parameters)
+      type(rank_struct), intent(inout) :: parameters
+
+      integer :: ii, jj, kk, global_index, rank_of_coords
+      integer :: indices(parameters%ndims)
+
+      ! Prevent MPI from aborting when we try to find neighbors that do not exist
+      call change_MPI_COMM_errhandler(parameters)
+
+      ! Determine the ranks of neighboring processes including corners along each dimension.
+      global_index = 1
+      do ii = -1,1,1
+         do jj = -1,1,1
+            do kk = -1,1,1
+               indices = parameters%coords + [ii,jj,kk]
+
+               call MPI_Cart_rank(parameters%cart_comm, indices, rank_of_coords, ierr)
+
+               if(ierr /= MPI_SUCCESS) then
+                  parameters%neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
+               else if(ii == 0 .AND. jj == 0 .AND. kk == 0) then
+                  parameters%neighbors(global_index) = neighbor_current_rank ! This is the current rank
+               else
+                  parameters%neighbors(global_index) = rank_of_coords
+               endif
+               global_index = global_index + 1
+            end do
+         end do
+      end do
+
+      ! Restore the original error handler to abort on errors
+      call original_MPI_COMM_errhandler(parameters)
+
+   end subroutine determine_moore_neighbors_3d
+
+   !> Routine to find the elements to be sent and recieved from each neighbor
+   !> todo
+
+   !> Routine to send and reviece elements from each neighbor
+   !> todo
 
    !> Routine to change the MPI_COMM error handler so we can find neighbors without crashing. We restore the original using original_MPI_COMM_errhandler() when done
    subroutine change_MPI_COMM_errhandler(parameters)
@@ -157,7 +223,7 @@ contains
       endif
    end subroutine change_MPI_COMM_errhandler
 
-   !> Changes the MPI_COMM error handler back to the original after finding neighbors
+   !> Restores the MPI_COMM error handler back to the original after finding neighbors
    subroutine original_MPI_COMM_errhandler(parameters)
       type(rank_struct), intent(inout) :: parameters
 

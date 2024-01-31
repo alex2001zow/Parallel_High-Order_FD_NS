@@ -11,7 +11,7 @@ LDFLAGS =
 EXEC = bin/parallel_solver_mpi
 
 # Source files
-SRCS = src/utility_functions_module.f90 src/rank_parameters_module.f90 src/main.f90
+SRCS = src/constants_module.f90 src/utility_functions_module.f90 src/rank_parameters_module.f90 src/main.f90
 
 # Object files
 OBJS = $(patsubst src/%.f90,bin/%.o,$(SRCS))

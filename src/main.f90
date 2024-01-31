@@ -15,7 +15,7 @@ program main
    call MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, world_size, ierr)
 
-   ! Allocate and setup rank parameters
+   ! Setup rank parameters
    call setup_rank_parameters(rank_params, rank, world_size)
 
    ! Print out rank parameters from rank 0
