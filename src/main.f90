@@ -1,5 +1,5 @@
 program main
-   use mpi
+   use mpi_wrapper_module
    use rank_parameters_module
    use utility_functions_module
    implicit none
@@ -11,9 +11,7 @@ program main
    real, allocatable :: local_matrix(:)
 
    ! Initialize MPI
-   call MPI_INIT(ierr)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, world_size, ierr)
+   call initialize_mpi_wrapper(rank, world_size, ierr)
 
    ! Setup rank parameters
    call setup_rank_parameters(rank_params, rank, world_size)
@@ -25,13 +23,12 @@ program main
    END IF
 
    allocate(local_matrix(rank_params%total_num_elements))
-
    deallocate(local_matrix)
 
    ! Deallocate rank parameters
    call deallocate_rank_parameters(rank_params)
 
    ! Finalize MPI
-   call MPI_FINALIZE(ierr)
+   call finalize_mpi_wrapper(ierr)
 end program main
 

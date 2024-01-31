@@ -30,9 +30,32 @@ contains
       global_index = global_index + 1
    end function IDX_XD
 
+   !> Routine to get the indices for certain loop values OBS OBS MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
+   subroutine get_indices_2d(ndims, dims, begin, end, indices)
+      integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: dims, begin, end
+      integer, allocatable, intent(out) :: indices(:)
+      integer :: ii, jj, global_index, number_of_indices
+
+      number_of_indices = 1
+      do ii = 1,ndims
+         number_of_indices = number_of_indices * (end(ii) - begin(ii) + 1)
+      end do
+
+      allocate(indices(number_of_indices))
+
+      global_index = 1
+      do ii = begin(1), end(1)
+         do jj = begin(2),end(2)
+            indices(global_index) = IDX_XD(ndims, dims, [ii, jj]) ! THIS ii and jj SHOULD BE CORRECT. BUT DOUBLE CHECK
+            global_index = global_index + 1
+         end do
+      end do
+
+   end subroutine get_indices_2d
+
    !> A routine to print the cartesian grid. Just for debugging and understanding
    subroutine print_cartesian_grid(ndim, pn)
-      implicit none
       integer, intent(in) :: ndim  ! Number of dimensions
       integer, dimension(ndim), intent(in) :: pn  ! Processors in each dimension
       integer :: i, j, k, idx
