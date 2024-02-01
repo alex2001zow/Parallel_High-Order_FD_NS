@@ -16,7 +16,6 @@ module rank_parameters_module
       integer :: rank, world_size, cart_comm
       integer :: total_number_of_neighbors, effective_number_of_neighbors
       integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), local_size(:)
-      logical, allocatable :: periods(:)
    end type rank_struct
 
    public :: rank_struct, setup_rank_parameters, deallocate_rank_parameters, print_rank_parameters
@@ -56,17 +55,13 @@ contains
          end if
          parameters%local_size(ii) = parameters%grid_size(ii) / parameters%processor_dim(ii)
 
-         ! We do not have any periodic boundaries between ranks
-         parameters%periods(ii) = .FALSE.
-
          ! The total number of elements we have to allocate per node
          parameters%total_num_elements = parameters%total_num_elements * parameters%local_size(ii)
 
       end do
 
       ! Create a Cartesian communicator
-      call create_cart_communicator_mpi_wrapper(parameters%ndims, parameters%processor_dim,&
-         parameters%periods, parameters%cart_comm, ierr)
+      call create_cart_communicator_mpi_wrapper(parameters%ndims, parameters%processor_dim, parameters%cart_comm, ierr)
 
       ! Get the Cartesian coordinates of the current process
       call get_cart_coords_mpi_wrapper(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords, ierr)
@@ -81,7 +76,6 @@ contains
 
       allocate(parameters%grid_size(parameters%ndims))
       allocate(parameters%processor_dim(parameters%ndims))
-      allocate(parameters%periods(parameters%ndims))
       allocate(parameters%coords(parameters%ndims))
       allocate(parameters%neighbors(parameters%total_number_of_neighbors))
       allocate(parameters%local_size(parameters%ndims))
@@ -94,7 +88,6 @@ contains
       ! Deallocate the pointers
       deallocate(parameters%grid_size)
       deallocate(parameters%processor_dim)
-      deallocate(parameters%periods)
       deallocate(parameters%coords)
       deallocate(parameters%neighbors)
       deallocate(parameters%local_size)
@@ -111,7 +104,6 @@ contains
       print *, "World Size:", parameters%world_size
       print *, "Grid Size:", parameters%grid_size
       print *, "Num Processors per dim:", parameters%processor_dim
-      print *, "Periodic:", parameters%periods
       print *, "Cartesian coordinates:", parameters%coords
       print *, "Neighbors:", parameters%neighbors
       print *, "Local matrix size:", parameters%local_size
@@ -123,8 +115,8 @@ contains
       type(rank_struct), intent(inout) :: parameters
 
       integer :: ii, jj, kk, global_index
-      integer :: rank_of_coords, indices(parameters%ndims)
-      integer :: error
+      integer :: indices(parameters%ndims)
+      integer :: rank_of_coords, error
 
       ! Prevent MPI from aborting when we try to find neighbors that do not exist
       call change_MPI_COMM_errhandler_mpi_wrapper(parameters%cart_comm, ierr)

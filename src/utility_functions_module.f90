@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, print_cartesian_grid
+   public :: IDX_XD, print_cartesian_grid, get_indices
 
 contains
 
@@ -31,11 +31,11 @@ contains
    end function IDX_XD
 
    !> Routine to get the indices for certain loop values OBS OBS MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
-   subroutine get_indices_2d(ndims, dims, begin, end, indices)
+   subroutine get_indices(ndims, dims, begin, end, indices)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) :: dims, begin, end
       integer, allocatable, intent(out) :: indices(:)
-      integer :: ii, jj, global_index, number_of_indices
+      integer :: ii, jj, kk, global_index, number_of_indices
 
       number_of_indices = 1
       do ii = 1,ndims
@@ -45,14 +45,29 @@ contains
       allocate(indices(number_of_indices))
 
       global_index = 1
-      do ii = begin(1), end(1)
-         do jj = begin(2),end(2)
-            indices(global_index) = IDX_XD(ndims, dims, [ii, jj]) ! THIS ii and jj SHOULD BE CORRECT. BUT DOUBLE CHECK
-            global_index = global_index + 1
-         end do
-      end do
 
-   end subroutine get_indices_2d
+      if(ndims == 2) then
+         do ii = begin(1), end(1)
+            do jj = begin(2),end(2)
+               indices(global_index) = IDX_XD(ndims, dims, [jj, ii])
+               global_index = global_index + 1
+            end do
+         end do
+      end if
+
+      if(ndims == 3) then
+         global_index = 1
+         do ii = begin(1), end(1)
+            do jj = begin(2),end(2)
+               do kk = begin(3),end(2)
+                  indices(global_index) = IDX_XD(ndims, dims, [kk, jj, ii])
+                  global_index = global_index + 1
+               end do
+            end do
+         end do
+      end if
+
+   end subroutine get_indices
 
    !> A routine to print the cartesian grid. Just for debugging and understanding
    subroutine print_cartesian_grid(ndim, pn)

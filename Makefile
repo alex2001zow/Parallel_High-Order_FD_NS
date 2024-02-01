@@ -14,7 +14,7 @@ EFLAGS = -Wall -Wextra
 IFLAGS = -Jinclude/
 
 # Module flags
-MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 #-fdefault-integer-8
+MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Combined compiler flags for compilation
 CFLAGS = $(OTHERFLAGS) $(OFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS)
