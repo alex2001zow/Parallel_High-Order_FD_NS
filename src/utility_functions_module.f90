@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, print_cartesian_grid, get_indices
+   public :: IDX_XD, IDX_XD_INV, print_cartesian_grid, get_indices
 
 contains
 
@@ -29,6 +29,36 @@ contains
       ! Adjust index for 1-based indexing of Fortran
       global_index = global_index + 1
    end function IDX_XD
+
+   !> Local indices from ndims, dims, global_index.
+   !! 1D: ndims = 1, dims = [N], global_index = i, indices = [i]
+   !! 2D: ndims = 2, dims = [N, M], global_index = i + N * (j - 1), indices = [i, j]
+   !! 3D: ndims = 3, dims = [N, M, K], global_index = i + N * (j - 1) + N * M * (k - 1), indices = [i, j, k]
+   !! 4D: ndims = 4, dims = [N, M, K, L], global_index = i + N * (j - 1) + N * M * (k - 1) + N * M * K * (l - 1), indices = [i, j, k, l]
+   !! etc.
+   function IDX_XD_INV(ndims, dims, global_index_in) result(indices)
+      integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: dims
+      integer, intent(in) :: global_index_in
+      integer, dimension(ndims) :: indices
+      integer :: d, product, global_index
+
+      ! Adjust index for 1-based indexing of Fortran
+      global_index = global_index_in - 1
+
+      product = 1
+      do d = 1, ndims - 1
+         product = product * dims(d)
+      end do
+
+      do d = ndims, 2, -1
+         indices(d) = global_index / product + 1
+         global_index = mod(global_index, product)
+         product = product / dims(d - 1)
+      end do
+
+      indices(1) = global_index + 1
+   end function IDX_XD_INV
 
    !> Routine to get the indices for certain loop values OBS OBS MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
    subroutine get_indices(ndims, dims, begin, end, indices)

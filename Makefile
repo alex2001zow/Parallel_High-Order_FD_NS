@@ -1,19 +1,16 @@
 # Compiler
 FC = mpifort
 
+# Source and binary directories
+SRC_DIR = src
+BIN_DIR = bin
+INC_DIR = include
+
 # Compilation flags
 OTHERFLAGS = -c
-
-# Optimization flags
 OFLAGS = -O3
-
-# Error flags
 EFLAGS = -Wall -Wextra
-
-# Include flags
-IFLAGS = -Jinclude/
-
-# Module flags
+IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Combined compiler flags for compilation
@@ -23,28 +20,29 @@ CFLAGS = $(OTHERFLAGS) $(OFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS)
 LDFLAGS = 
 
 # Executable name
-EXEC = bin/parallel_solver_mpi
+EXEC = $(BIN_DIR)/parallel_solver_mpi
 
-# Source files
-SRCS = src/mpi_wrapper_module.f90 src/constants_module.f90 src/utility_functions_module.f90 src/rank_parameters_module.f90 src/main.f90
+# Files to compile
+FILES = mpi_wrapper_module.f90 constants_module.f90 utility_functions_module.f90 rank_parameters_module.f90 main.f90
 
+# Source files with directory prefix
+SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
 # Object files
-OBJS = $(patsubst src/%.f90,bin/%.o,$(SRCS))
+OBJS = $(patsubst $(SRC_DIR)/%.f90,$(BIN_DIR)/%.o,$(SRCS))
 
 # Targets
+.PHONY: all clean
+
 all: $(EXEC)
 
-bin/:
-	mkdir -p bin/
-
-include/:
-	mkdir -p include/
-
-$(EXEC): bin/ $(OBJS)
+$(EXEC): $(OBJS)
 	$(FC) $(LDFLAGS) -o $@ $(OBJS)
 
-bin/%.o: src/%.f90 include/
+$(BIN_DIR)/%.o: $(SRC_DIR)/%.f90 | $(BIN_DIR) $(INC_DIR)
 	$(FC) $(CFLAGS) $< -o $@
 
+$(BIN_DIR) $(INC_DIR):
+	mkdir -p $@
+
 clean:
-	rm -f $(EXEC) bin/*.o include/*.mod src/*.mod
+	rm -f $(EXEC) $(BIN_DIR)/*.o $(INC_DIR)/*.mod $(SRC_DIR)/*.mod
