@@ -11,9 +11,12 @@ module mpi_wrapper_module
    integer(kind=4) :: rank_4, world_size_4, ierr_4, comm_cart_4, rank_of_coords_4, error_4
    integer(kind=4) :: original_errhandler_4 = MPI_ERRHANDLER_NULL
 
+   integer(kind=4) :: send_request_4, recv_request_4
+   integer(kind=4), parameter :: neighbor_sendrecv_tag = 99
+
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      mpi_cart_rank_mpi_wrapper
+      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper
 
 contains
 
@@ -38,6 +41,26 @@ contains
 
       ierr_8 = ierr_4
    end subroutine finalize_mpi_wrapper
+
+   !> Subroutine wrapper for a non-blocking send operation
+   subroutine isendrecv_mpi_wrapper(array_size, send_array, recv_array, array_start_index, count, &
+      sendrecv_rank, comm, send_request_8, recv_request_8, ierr_8)
+
+      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
+      real, dimension(array_size), intent(inout) :: send_array, recv_array
+      integer, intent(out) :: send_request_8, recv_request_8, ierr_8
+
+      call MPI_ISEND(send_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4),&
+         neighbor_sendrecv_tag, INT(comm,kind=4), send_request_4, ierr_4)
+
+      call MPI_IRECV(recv_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4),&
+         neighbor_sendrecv_tag, INT(comm,kind=4), recv_request_4, ierr_4)
+
+      send_request_8 = send_request_4
+      recv_request_8 = recv_request_4
+      ierr_8 = ierr_4
+
+   end subroutine isendrecv_mpi_wrapper
 
    !> This subroutine creates a cartesian communicator
    subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, comm_cart_8, ierr_8)
@@ -78,7 +101,7 @@ contains
    end subroutine get_cart_coords_mpi_wrapper
 
    !> Routine to get the rank of a process given its coordinates
-   subroutine mpi_cart_rank_mpi_wrapper(comm_8, ndims_8, indices_8, rank_of_coords_8, error_8, ierr_8)
+   subroutine cart_rank_mpi_wrapper(comm_8, ndims_8, indices_8, rank_of_coords_8, error_8, ierr_8)
       integer, intent(in) :: comm_8, ndims_8
       integer, dimension(ndims_8), intent(in) :: indices_8
 
@@ -93,7 +116,7 @@ contains
       rank_of_coords_8 = rank_of_coords_4
       error_8 = error_4
       ierr_8 = ierr_4
-   end subroutine mpi_cart_rank_mpi_wrapper
+   end subroutine cart_rank_mpi_wrapper
 
    !> Routine to change the MPI_COMM error handler so we can find neighbors without crashing. We restore the original using original_MPI_COMM_errhandler() when done
    subroutine change_MPI_COMM_errhandler_mpi_wrapper(comm_8, ierr_8)

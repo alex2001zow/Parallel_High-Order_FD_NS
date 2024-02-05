@@ -1,5 +1,6 @@
 # Compiler
 FC = mpifort
+COMPILERSTANDARD = #-std=gnu
 
 # Source and binary directories
 SRC_DIR = src
@@ -9,21 +10,21 @@ INC_DIR = include
 # Compilation flags
 OTHERFLAGS = -c
 OFLAGS = -O3
-EFLAGS = -Wall -Wextra
+EFLAGS = -fimplicit-none -Wall -Wextra #-Werror
 IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Combined compiler flags for compilation
-CFLAGS = $(OTHERFLAGS) $(OFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS)
+CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(OFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS)
 
 # Linker flags for linking
 LDFLAGS = 
 
 # Executable name
-EXEC = $(BIN_DIR)/parallel_solver_mpi
+EXEC = $(BIN_DIR)/parallel_solver_mpi.out
 
 # Files to compile
-FILES = mpi_wrapper_module.f90 constants_module.f90 utility_functions_module.f90 rank_parameters_module.f90 main.f90
+FILES = mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 utility_functions_module.f90 initilization_module.f90 rank_parameters_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
