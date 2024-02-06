@@ -1,0 +1,3 @@
+ Rank cartesian processor grid with dimension:                    2
+   0    2 
+   1    3 

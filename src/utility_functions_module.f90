@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, IDX_XD_INV, print_cartesian_grid, get_indices
+   public :: IDX_XD, IDX_XD_INV, get_indices
 
 contains
 
@@ -98,56 +98,5 @@ contains
       end if
 
    end subroutine get_indices
-
-   !> A routine to print the cartesian grid. Just for debugging and understanding
-   subroutine print_cartesian_grid(ndim, pn)
-      integer, intent(in) :: ndim  ! Number of dimensions
-      integer, dimension(ndim), intent(in) :: pn  ! Processors in each dimension
-      integer :: i, j, k, idx
-      integer, dimension(ndim) :: indices  ! Array to hold the indices for IDX_XD
-
-      print *, "Cartesian processor grid with dimension:", ndim
-
-      select case(ndim)
-       case(1)
-         ! 1D Grid
-         do i = 1, pn(1)
-            indices(1) = i
-            idx = IDX_XD(ndim, pn, indices) - 1
-            write(*, '(I4, 1X)', advance="no") idx
-         end do
-         print *
-
-       case(2)
-         ! 2D Grid
-         do j = 1, pn(2)
-            do i = 1, pn(1)
-               indices = [i, j]  ! Set current indices
-               idx = IDX_XD(ndim, pn, indices) - 1
-               write(*, '(I4, 1X)', advance="no") idx
-            end do
-            print *  ! New line for the next row
-         end do
-
-       case(3)
-         ! 3D Grid (printed as slices of 2D grids)
-         do k = 1, pn(3)
-            print *, "Slice", k, ":"
-            do j = 1, pn(2)
-               do i = 1, pn(1)
-                  indices = [i, j, k]  ! Set current indices
-                  idx = IDX_XD(ndim, pn, indices) - 1
-                  write(*, '(I4, 1X)', advance="no") idx
-               end do
-               print *  ! New line for the next row
-            end do
-            if (k < pn(3)) then
-               print *  ! Separate slices with a blank line for readability
-            endif
-         end do
-
-      end select
-
-   end subroutine print_cartesian_grid
 
 end module utility_functions_module

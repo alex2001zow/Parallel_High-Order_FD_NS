@@ -5,7 +5,7 @@ module rank_parameters_module
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only : IDX_XD
-   use initilization_module, only: test_block_structure_2D
+   use initilization_module, only: initialize_block_2D
    implicit none
 
    private
@@ -19,12 +19,12 @@ module rank_parameters_module
       integer :: rank, world_size, cart_comm
       integer :: ndims, num_block_elements, num_block_neighbors, num_sendrecv_elements
 
-      integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), local_size(:)
+      integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), block_size(:), begin_block(:), end_block(:)
       integer, allocatable :: neighbor_sendrecv_start_index(:), neighbor_send_request(:), neighbor_recv_request(:)
-      real, allocatable :: local_block_matrix(:), neighbor_elements_send(:), neighbor_elements_recv(:)
+      real, allocatable :: block_matrix(:), neighbor_elements_send(:), neighbor_elements_recv(:)
    end type rank_struct
 
-   public :: rank_struct, setup_rank_parameters, deallocate_rank_parameters, print_rank_parameters
+   public :: rank_struct, setup_rank_parameters, deallocate_rank_parameters
    public :: sendrecv_elements_from_neighbors, buffer2array, array2buffer
 
 contains
@@ -48,7 +48,6 @@ contains
 
       call allocate_rank_parameters(parameters)
 
-      parameters%num_block_elements = 1
       do ii = 1, parameters%ndims
          call get_command_argument(ii+1, temp_arg)
          read(temp_arg,*) parameters%grid_size(ii)
@@ -61,12 +60,14 @@ contains
             print *, "Grid size is not divisible by the number of processors in dimension ", ii
             stop
          end if
-         parameters%local_size(ii) = parameters%grid_size(ii) / parameters%processor_dim(ii)
-
-         ! The total number of elements we have to allocate per node
-         parameters%num_block_elements = parameters%num_block_elements * parameters%local_size(ii)
 
       end do
+
+      ! The block size is the number of elements per dimension
+      parameters%block_size = parameters%grid_size / parameters%processor_dim
+
+      ! The total number of elements we have to allocate per node
+      parameters%num_block_elements = product(parameters%block_size)
 
       call allocate_block_matrix(parameters)
 
@@ -76,13 +77,19 @@ contains
       ! Get the Cartesian coordinates of the current process
       call get_cart_coords_mpi_wrapper(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords, ierr)
 
+      ! Determine the Moore neighbors of each rank
       call determine_moore_neighbors(parameters)
 
+      ! Allocate the send and recv arrays for each neighbor
       call allocate_neighbor_sendrecv_array(parameters)
+
+      ! Setup the block matrix begin and end indices
+      parameters%begin_block = parameters%coords * parameters%block_size + 1
+      parameters%end_block = parameters%begin_block + parameters%block_size - 1
 
    end subroutine setup_rank_parameters
 
-   !> Allocate rank parameters. IMPORTANT neighbors are not the correct size yet!
+   !> Allocate rank parameters.
    subroutine allocate_rank_parameters(parameters)
       type(rank_struct), intent(inout) :: parameters
 
@@ -95,7 +102,9 @@ contains
       allocate(parameters%neighbor_send_request(parameters%num_block_neighbors))
       allocate(parameters%neighbor_recv_request(parameters%num_block_neighbors))
 
-      allocate(parameters%local_size(parameters%ndims))
+      allocate(parameters%block_size(parameters%ndims))
+      allocate(parameters%begin_block(parameters%ndims))
+      allocate(parameters%end_block(parameters%ndims))
    end subroutine allocate_rank_parameters
 
    !> Deallocate rank parameters
@@ -108,7 +117,10 @@ contains
       deallocate(parameters%coords)
       deallocate(parameters%neighbors)
       deallocate(parameters%neighbor_sendrecv_start_index)
-      deallocate(parameters%local_size)
+
+      deallocate(parameters%block_size)
+      deallocate(parameters%begin_block)
+      deallocate(parameters%end_block)
 
       call deallocate_block_matrix(parameters)
 
@@ -123,32 +135,15 @@ contains
    subroutine allocate_block_matrix(parameters)
       type(rank_struct), intent(inout) :: parameters
 
-      allocate(parameters%local_block_matrix(parameters%num_block_elements))
+      allocate(parameters%block_matrix(parameters%num_block_elements))
    end subroutine allocate_block_matrix
 
    !> Deallocate the block matrix
    subroutine deallocate_block_matrix(parameters)
       type(rank_struct), intent(inout) :: parameters
 
-      deallocate(parameters%local_block_matrix)
+      deallocate(parameters%block_matrix)
    end subroutine deallocate_block_matrix
-
-   !> Print rank parameters
-   subroutine print_rank_parameters(parameters)
-      type(rank_struct), intent(in) :: parameters
-      print *, "Dimensions:", parameters%ndims
-      print *, "Rank:", parameters%rank
-      print *, "World Size:", parameters%world_size
-      print *, "Grid Size:", parameters%grid_size
-      print *, "Num Processors per dim:", parameters%processor_dim
-      print *, "Cartesian coordinates:", parameters%coords
-      print *, "Neighbors:", parameters%neighbors
-      print *, "Neighbor sendrecv start index:", parameters%neighbor_sendrecv_start_index
-      print *, "Total number of elements to be sent and recieved:", parameters%num_sendrecv_elements
-      print *, "Local matrix size:", parameters%local_size
-      print *, "Total number of elements in the block:", parameters%num_block_elements
-      !print *, "Local block matrix:", parameters%local_block_matrix
-   end subroutine print_rank_parameters
 
    !> Find the neighbors of each rank in a 2D or 3D grid. Would like to make it N-D but that is a bit more complicated.
    subroutine determine_moore_neighbors(parameters)
@@ -219,7 +214,7 @@ contains
       neighbor_elements_size = 1
       do neighbor_index = 1, parameters%num_block_neighbors
          if(parameters%neighbors(neighbor_index) > neighbor_non_existant_rank) then
-            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%local_size, begin, end)
+            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block_size, begin, end)
             neighbor_elements_size = product(end - begin + 1)
             parameters%neighbor_sendrecv_start_index(neighbor_index) = parameters%num_sendrecv_elements
             parameters%num_sendrecv_elements = parameters%num_sendrecv_elements + neighbor_elements_size
@@ -242,7 +237,7 @@ contains
 
       do neighbor_index = 1, parameters%num_block_neighbors
          if(parameters%neighbors(neighbor_index) > neighbor_non_existant_rank) then
-            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%local_size, begin, end)
+            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block_size, begin, end)
             neighbor_elements_size = product(end - begin + 1)
             call isendrecv_mpi_wrapper(parameters%num_sendrecv_elements, parameters%neighbor_elements_send, &
                parameters%neighbor_elements_recv, parameters%neighbor_sendrecv_start_index(neighbor_index), &

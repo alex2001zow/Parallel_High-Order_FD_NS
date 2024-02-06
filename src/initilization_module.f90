@@ -4,24 +4,33 @@ module initilization_module
 
    private
 
-   public :: test_block_structure_2D
+   public :: initialize_block_2D
 
 contains
 
-   subroutine test_block_structure_2D(ndim, dims, data, rank)
+   subroutine initialize_block_2D(ndim, global_dims, begin_block, dims, data, rank)
       integer, intent(in) :: ndim, rank
-      integer, dimension(ndim), intent(in) :: dims
+      integer, dimension(ndim), intent(in) :: global_dims, dims, begin_block
       real, dimension(product(dims)), intent(inout) :: data
 
-      integer :: ii, jj, global_index
+      integer :: ii, jj, local_index, global_index
 
       do ii = 1, dims(1)
          do jj = 1, dims(2)
-            global_index = IDX_XD(ndim,dims,[jj,ii])
-            data(global_index) = rank
+            local_index = IDX_XD(ndim,dims,[jj,ii])
+            global_index = IDX_XD(ndim, global_dims, begin_block + [jj,ii] - 1)
+            data(local_index) = test_function(global_index)
          end do
       end do
 
-   end subroutine test_block_structure_2D
+   end subroutine initialize_block_2D
+
+   function test_function(input) result(output)
+      integer, intent(in) :: input
+      real :: output
+
+      output = input
+
+   end function test_function
 
 end module initilization_module

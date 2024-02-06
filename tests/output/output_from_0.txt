@@ -1,0 +1,27 @@
+ Dimensions:                    2
+ Rank:                    0
+ World Size:                    4
+ Grid Size:                    8                    8
+ Num Processors per dim:                    2                    2
+ Rank cartesian coordinates:                    0                    0
+ Number of elements to be sent and received:                    5
+ Number of elements in the block:                   16
+
+ Printing block matrix:
+
+ Block size:                    4                    4
+ Begin block:                    1                    1
+ End block:                    4                    4
+ Neighbor ranks:
+   -1   -1   -1
+   -1  -10    1
+   -1    2    3
+ Neighbor sendrecv start indices:
+   -1   -1   -1
+   -1   -1    0
+   -1    2    4
+ Block matrix:
+     1.000     2.000     3.000     4.000
+     9.000    10.000    11.000    12.000
+    17.000    18.000    19.000    20.000
+    25.000    26.000    27.000    28.000

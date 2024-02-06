@@ -19,6 +19,8 @@ M_PROCESSORS=2
 N_PROCESSORS=2
 K_PROCESSORS=1
 
+rm -f output/*.txt
+
 # Change to the parent directory
 cd ..
 
