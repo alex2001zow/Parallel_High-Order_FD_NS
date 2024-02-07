@@ -6,6 +6,7 @@ COMPILERSTANDARD = #-std=gnu
 SRC_DIR = src
 BIN_DIR = bin
 INC_DIR = include
+EXEC_DIR = exec
 
 # Compilation flags
 OTHERFLAGS = -c
@@ -21,10 +22,10 @@ CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(OFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAG
 LDFLAGS = 
 
 # Executable name
-EXEC = $(BIN_DIR)/parallel_solver_mpi.out
+EXEC = $(EXEC_DIR)/parallel_solver_mpi.out
 
 # Files to compile
-FILES = mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 utility_functions_module.f90 initilization_module.f90 rank_parameters_module.f90 solver_module.f90 print_module.f90 main.f90
+FILES = mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 utility_functions_module.f90 initialization_module.f90 rank_parameters_module.f90 solver_module.f90 print_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
@@ -36,13 +37,13 @@ OBJS = $(patsubst $(SRC_DIR)/%.f90,$(BIN_DIR)/%.o,$(SRCS))
 
 all: $(EXEC)
 
-$(EXEC): $(OBJS)
+$(EXEC): $(OBJS) | $(EXEC_DIR)
 	$(FC) $(LDFLAGS) -o $@ $(OBJS)
 
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.f90 | $(BIN_DIR) $(INC_DIR)
 	$(FC) $(CFLAGS) $< -o $@
 
-$(BIN_DIR) $(INC_DIR):
+$(BIN_DIR) $(INC_DIR) $(EXEC_DIR):
 	mkdir -p $@
 
 clean:

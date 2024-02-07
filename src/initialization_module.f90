@@ -1,4 +1,4 @@
-module initilization_module
+module initialization_module
    use utility_functions_module
    implicit none
 
@@ -33,4 +33,4 @@ contains
 
    end function test_function
 
-end module initilization_module
+end module initialization_module

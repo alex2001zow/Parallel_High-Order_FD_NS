@@ -1,6 +1,7 @@
 module print_module
    use rank_parameters_module, only: rank_struct
    use utility_functions_module, only: IDX_XD
+   use mpi_wrapper_module,
    implicit none
 
    private
@@ -9,16 +10,16 @@ module print_module
 contains
 
    !> A routine to print the cartesian grid of the ranks. For debugging and understanding
-   subroutine print_cartesian_grid(ndim, pn, filename)
-      integer, intent(in) :: ndim  ! Number of dimensions
-      integer, dimension(ndim), intent(in) :: pn  ! Processors in each dimension
+   subroutine print_cartesian_grid(cart_comm, world_size, ndim, filename)
+      integer, intent(in) :: cart_comm, world_size  ! Cartesian communicator
+      integer, intent(in) :: ndim       ! Number of dimensions
       character(len=*), intent(in) :: filename  ! Base filename
-      integer :: ii, jj, kk, idx, iounit, ios
-      integer, dimension(ndim) :: indices  ! Array to hold the indices for IDX_XD
+      integer :: current_rank, ierr, iounit, ios
+      integer, dimension(ndim) :: coords  ! Coordinates in the cartesian topology
       character(255) :: file_with_grid
 
       ! Construct the filename by appending "_cart_grid" to the original filename
-      write(file_with_grid, '(A, "_cart_grid.txt")') trim(filename)
+      write(file_with_grid, '(A, "cart_grid.txt")') trim(filename)
 
       ! Open the file for writing, replacing it if it already exists
       open(newunit=iounit, file=trim(file_with_grid), status='replace', action='write', iostat=ios)
@@ -29,47 +30,23 @@ contains
          return
       endif
 
-      ! Write the grid information to the file
+      ! Write the header to the file
       write(iounit, *) "Rank cartesian processor grid with dimension:", ndim
 
-      select case(ndim)
-       case(1)
-         ! 1D Grid
-         do ii = 1, pn(1)
-            idx = IDX_XD(ndim, pn, [ii]) - 1
-            write(iounit, '(I4, 1X)', advance="no") idx
-         end do
-         write(iounit, *)
+      ! Iterate over all ranks in the cartesian communicator
+      do current_rank = 0, world_size - 1
+         ! Get the coordinates for the current rank
+         call get_cart_coords_mpi_wrapper(cart_comm, current_rank, ndim, coords, ierr)
 
-       case(2)
-         ! 2D Grid
-         do ii = 1, pn(1)
-            do jj = 1, pn(2)
-               idx = IDX_XD(ndim, pn, [ii,jj]) - 1
-               write(iounit, '(I4, 1X)', advance="no") idx
-            end do
-            write(iounit, *)
-         end do
-
-       case(3)
-         do ii = 1, pn(1)
-            write(iounit, *) "Slice", kk, ":"
-            do jj = 1, pn(2)
-               do kk = 1, pn(3)
-                  idx = IDX_XD(ndim, pn, [ii,jj,kk]) - 1
-                  write(iounit, '(I4, 1X)', advance="no") idx
-               end do
-               write(iounit, *)
-            end do
-            if (kk < pn(3)) then
-               write(iounit, *)
-            endif
-         end do
-      end select
+         ! Write the rank and its coordinates to the file
+         write(iounit, '(A, I4, A, *(I4, 1X))') "Rank ", current_rank, " coords: ", coords
+      end do
 
       ! Close the file
       close(iounit)
+
    end subroutine print_cartesian_grid
+
 
    !> Print rank parameters
    subroutine print_rank_parameters(parameters, filename)

@@ -1,11 +1,12 @@
 module rank_parameters_module
+   use mpi, only : MPI_REQUEST_NULL
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
-      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper
+      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only : IDX_XD
-   use initilization_module, only: initialize_block_2D
+   use initialization_module, only: initialize_block_2D
    implicit none
 
    private
@@ -20,12 +21,13 @@ module rank_parameters_module
       integer :: ndims, num_block_elements, num_block_neighbors, num_sendrecv_elements
 
       integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), block_size(:), begin_block(:), end_block(:)
-      integer, allocatable :: neighbor_sendrecv_start_index(:), neighbor_send_request(:), neighbor_recv_request(:)
+      integer, allocatable :: neighbor_sendrecv_start_index(:)
+      integer, allocatable :: neighbor_send_request(:), neighbor_recv_request(:)
       real, allocatable :: block_matrix(:), neighbor_elements_send(:), neighbor_elements_recv(:)
    end type rank_struct
 
    public :: rank_struct, setup_rank_parameters, deallocate_rank_parameters
-   public :: sendrecv_elements_from_neighbors, buffer2array, array2buffer
+   public :: communicate_step
 
 contains
 
@@ -162,7 +164,7 @@ contains
       if(parameters%ndims == 2) then
          do ii = -1,1,1
             do jj = -1,1,1
-               indices = parameters%coords + [ii,jj]
+               indices = parameters%coords + [jj,ii]
 
                call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error, ierr)
 
@@ -182,7 +184,7 @@ contains
          do ii = -1,1,1
             do jj = -1,1,1
                do kk = -1,1,1
-                  indices = parameters%coords + [ii,jj,kk]
+                  indices = parameters%coords + [kk,jj,ii]
 
                   call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error, ierr)
 
@@ -244,6 +246,9 @@ contains
                neighbor_elements_size, parameters%neighbors(neighbor_index),&
                parameters%cart_comm, parameters%neighbor_send_request(neighbor_index), &
                parameters%neighbor_recv_request(neighbor_index), ierr)
+         else
+            parameters%neighbor_send_request(neighbor_index) = MPI_REQUEST_NULL
+            parameters%neighbor_recv_request(neighbor_index) = MPI_REQUEST_NULL
          end if
       end do
 
@@ -316,5 +321,35 @@ contains
       endif
 
    end subroutine array2buffer
+
+   !> Communicate step
+   subroutine communicate_step(parameters)
+      type(rank_struct), intent(inout) :: parameters
+
+      integer :: ii
+
+      do ii = 1, parameters%num_block_neighbors
+         if(parameters%neighbors(ii) > neighbor_non_existant_rank) then
+            call array2buffer(parameters%ndims, parameters%block_size, parameters%begin_block, parameters%end_block, &
+               parameters%block_matrix, parameters%num_block_elements, parameters%neighbor_elements_send, &
+               parameters%num_sendrecv_elements, parameters%neighbor_sendrecv_start_index(ii))
+         end if
+      end do
+
+      call sendrecv_elements_from_neighbors(parameters)
+
+      ! WE NEED TO MAKE SURE WE CHECK FOR -1 meaning non-existant rank
+      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_send_request, ierr)
+      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_recv_request, ierr)
+
+      do ii = 1, parameters%num_block_neighbors
+         if(parameters%neighbors(ii) > neighbor_non_existant_rank) then
+            call buffer2array(parameters%ndims, parameters%block_size, parameters%begin_block, parameters%end_block, &
+               parameters%block_matrix, parameters%num_block_elements, parameters%neighbor_elements_recv, &
+               parameters%num_sendrecv_elements, parameters%neighbor_sendrecv_start_index(ii))
+         end if
+      end do
+
+   end subroutine communicate_step
 
 end module rank_parameters_module

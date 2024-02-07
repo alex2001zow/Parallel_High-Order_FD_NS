@@ -5,7 +5,7 @@ program main
    use utility_functions_module
    use solver_module
    use print_module
-   use initilization_module
+   use initialization_module
    implicit none
 
    type(rank_struct) :: rank_params
@@ -29,7 +29,7 @@ program main
 
    ! Write out the cartesian grid from rank 0
    if(rank_params%rank == MASTER_RANK) THEN
-      call print_cartesian_grid(rank_params%ndims, rank_params%processor_dim, filename)
+      call print_cartesian_grid(rank_params%cart_comm, rank_params%world_size, rank_params%ndims, filename)
    END IF
 
    call print_rank_parameters(rank_params, filename)

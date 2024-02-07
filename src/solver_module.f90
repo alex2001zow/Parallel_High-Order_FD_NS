@@ -1,6 +1,5 @@
 module solver_module
-   use rank_parameters_module
-   use initilization_module
+   use rank_parameters_module, only: rank_struct, communicate_step
    implicit none
 
 
@@ -11,9 +10,18 @@ contains
 
    function run_solver(parameters) result(converged)
       type (rank_struct), intent(inout) :: parameters
+      integer :: iter, max_iter
       logical :: converged
 
       converged = .false.
+      max_iter = 1000
+
+      iter = 0
+      do while (converged .neqv. .true. .and. iter < max_iter)
+         !call communicate_step(parameters)
+         converged = .true.
+         iter = iter + 1
+      end do
 
    end function
 

@@ -60,7 +60,7 @@ contains
       indices(1) = global_index + 1
    end function IDX_XD_INV
 
-   !> Routine to get the indices for certain loop values OBS OBS MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
+   !> Routine to get the indices for certain loop values OBS! MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
    subroutine get_indices(ndims, dims, begin, end, indices)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) :: dims, begin, end

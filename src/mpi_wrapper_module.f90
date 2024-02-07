@@ -16,7 +16,7 @@ module mpi_wrapper_module
 
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper
+      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper
 
 contains
 
@@ -62,6 +62,22 @@ contains
 
    end subroutine isendrecv_mpi_wrapper
 
+   !> Subroutine wrapper for a wait all operation
+   subroutine waitall_mpi_wrapper(num_requests_8, requests_8, ierr_8)
+      integer, intent(in) :: num_requests_8
+      integer, dimension(num_requests_8), intent(inout) :: requests_8
+      integer, intent(out) :: ierr_8
+
+      integer(kind=4), dimension(num_requests_8) :: requests_4
+
+      requests_4 = requests_8
+
+      call MPI_WAITALL(INT(num_requests_8,kind=4), requests_4, MPI_STATUSES_IGNORE, ierr_4)
+
+      ierr_8 = ierr_4
+      requests_8 = requests_4
+   end subroutine waitall_mpi_wrapper
+
    !> This subroutine creates a cartesian communicator
    subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, comm_cart_8, ierr_8)
       integer, intent(in) :: ndims_8
@@ -78,7 +94,7 @@ contains
          periods_4(ii) = .FALSE.
       end do
 
-      call MPI_Cart_create(INT(MPI_COMM_WORLD,kind=4), INT(ndims_8,kind=4), INT(dims_8,kind=4),&
+      call MPI_CART_CREATE(INT(MPI_COMM_WORLD,kind=4), INT(ndims_8,kind=4), INT(dims_8,kind=4),&
          periods_4, reorder_4, comm_cart_4, ierr_4)
 
       comm_cart_8 = comm_cart_4
@@ -94,7 +110,7 @@ contains
 
       integer, intent(out) :: coords_8(ndims_8), ierr_8
 
-      call MPI_Cart_coords(INT(comm_8,kind=4), INT(rank_8,kind=4), INT(ndims_8,kind=4), coords_4, ierr_4)
+      call MPI_CART_COORDS(INT(comm_8,kind=4), INT(rank_8,kind=4), INT(ndims_8,kind=4), coords_4, ierr_4)
 
       coords_8 = coords_4
       ierr_8 = ierr_4
@@ -108,7 +124,7 @@ contains
       integer, intent(out) :: rank_of_coords_8, error_8, ierr_8
 
       error_4 = 0
-      call MPI_Cart_rank(INT(comm_8,kind=4), INT(indices_8,kind=4), rank_of_coords_4, ierr_4)
+      call MPI_CART_RANK(INT(comm_8,kind=4), INT(indices_8,kind=4), rank_of_coords_4, ierr_4)
       if(ierr_4 /= MPI_SUCCESS) then
          error_4 = 1
       endif
@@ -127,7 +143,7 @@ contains
       ! Check if the original error handler has already been saved
       if (original_errhandler_4 == MPI_ERRHANDLER_NULL) then
          ! Get the current error handler for comm
-         call MPI_Comm_get_errhandler(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
+         call MPI_COMM_GET_ERRHANDLER(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
          if (ierr_4 /= MPI_SUCCESS) then
             print *, "Error getting original MPI error handler."
             return
@@ -135,7 +151,7 @@ contains
       endif
 
       ! Set the error handler for comm to return errors
-      call MPI_Comm_set_errhandler(INT(comm_8,kind=4), MPI_ERRORS_RETURN, ierr_4)
+      call MPI_COMM_SET_ERRHANDLER(INT(comm_8,kind=4), MPI_ERRORS_RETURN, ierr_4)
       if (ierr_4 /= MPI_SUCCESS) then
          print *, "Error setting MPI error handler to MPI_ERRORS_RETURN."
       endif
@@ -152,7 +168,7 @@ contains
       ! Check if the original error handler was saved
       if (original_errhandler_4 /= MPI_ERRHANDLER_NULL) then
          ! Restore the original error handler for parameters%cart_comm
-         call MPI_Comm_set_errhandler(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
+         call MPI_COMM_SET_ERRHANDLER(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
          if (ierr_4 /= MPI_SUCCESS) then
             print *, "Error restoring original MPI error handler."
          endif
