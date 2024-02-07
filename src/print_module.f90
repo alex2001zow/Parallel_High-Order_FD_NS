@@ -14,7 +14,7 @@ contains
       integer, intent(in) :: cart_comm, world_size  ! Cartesian communicator
       integer, intent(in) :: ndim       ! Number of dimensions
       character(len=*), intent(in) :: filename  ! Base filename
-      integer :: current_rank, ierr, iounit, ios
+      integer :: current_rank, iounit, ios
       integer, dimension(ndim) :: coords  ! Coordinates in the cartesian topology
       character(255) :: file_with_grid
 
@@ -36,7 +36,7 @@ contains
       ! Iterate over all ranks in the cartesian communicator
       do current_rank = 0, world_size - 1
          ! Get the coordinates for the current rank
-         call get_cart_coords_mpi_wrapper(cart_comm, current_rank, ndim, coords, ierr)
+         call get_cart_coords_mpi_wrapper(cart_comm, current_rank, ndim, coords)
 
          ! Write the rank and its coordinates to the file
          write(iounit, '(A, I4, A, *(I4, 1X))') "Rank ", current_rank, " coords: ", coords

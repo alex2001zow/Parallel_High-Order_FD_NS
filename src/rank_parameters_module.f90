@@ -2,7 +2,7 @@ module rank_parameters_module
    use mpi, only : MPI_REQUEST_NULL
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
-      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper
+      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_cart_communicator_mpi_wrapper
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only : IDX_XD
@@ -10,10 +10,6 @@ module rank_parameters_module
    implicit none
 
    private
-   !character(len=MPI_MAX_ERROR_STRING) :: error_string
-   !integer :: ierr_string, error_len
-
-   integer :: ierr = 0
 
    !> Structure to hold the parameters for each rank.
    type rank_struct
@@ -74,10 +70,10 @@ contains
       call allocate_block_matrix(parameters)
 
       ! Create a Cartesian communicator
-      call create_cart_communicator_mpi_wrapper(parameters%ndims, parameters%processor_dim, parameters%cart_comm, ierr)
+      call create_cart_communicator_mpi_wrapper(parameters%ndims, parameters%processor_dim, parameters%cart_comm)
 
       ! Get the Cartesian coordinates of the current process
-      call get_cart_coords_mpi_wrapper(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords, ierr)
+      call get_cart_coords_mpi_wrapper(parameters%cart_comm, parameters%rank, parameters%ndims, parameters%coords)
 
       ! Determine the Moore neighbors of each rank
       call determine_moore_neighbors(parameters)
@@ -129,7 +125,7 @@ contains
       deallocate(parameters%neighbor_elements_send)
       deallocate(parameters%neighbor_elements_recv)
 
-      call MPI_Comm_free(parameters%cart_comm, ierr)
+      call free_cart_communicator_mpi_wrapper(parameters%cart_comm)
 
    end subroutine deallocate_rank_parameters
 
@@ -156,7 +152,7 @@ contains
       integer :: rank_of_coords, error
 
       ! Prevent MPI from aborting when we try to find neighbors that do not exist
-      call change_MPI_COMM_errhandler_mpi_wrapper(parameters%cart_comm, ierr)
+      call change_MPI_COMM_errhandler_mpi_wrapper(parameters%cart_comm)
 
       ! Determine the ranks of neighboring processes including corners along each dimension. Works for 2D and 3D
       global_index = 1
@@ -166,7 +162,7 @@ contains
             do jj = -1,1,1
                indices = parameters%coords + [jj,ii]
 
-               call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error, ierr)
+               call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error)
 
                if(error == 1) then
                   parameters%neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
@@ -186,7 +182,7 @@ contains
                do kk = -1,1,1
                   indices = parameters%coords + [kk,jj,ii]
 
-                  call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error, ierr)
+                  call cart_rank_mpi_wrapper(parameters%cart_comm, parameters%ndims, indices, rank_of_coords, error)
 
                   if(error == 1) then
                      parameters%neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
@@ -202,7 +198,7 @@ contains
       end if
 
       ! Restore the original error handler to abort on errors
-      call original_MPI_COMM_errhandler_mpi_wrapper(parameters%cart_comm, ierr)
+      call original_MPI_COMM_errhandler_mpi_wrapper(parameters%cart_comm)
 
    end subroutine determine_moore_neighbors
 
@@ -245,7 +241,7 @@ contains
                parameters%neighbor_elements_recv, parameters%neighbor_sendrecv_start_index(neighbor_index), &
                neighbor_elements_size, parameters%neighbors(neighbor_index),&
                parameters%cart_comm, parameters%neighbor_send_request(neighbor_index), &
-               parameters%neighbor_recv_request(neighbor_index), ierr)
+               parameters%neighbor_recv_request(neighbor_index))
          else
             parameters%neighbor_send_request(neighbor_index) = MPI_REQUEST_NULL
             parameters%neighbor_recv_request(neighbor_index) = MPI_REQUEST_NULL
@@ -339,8 +335,8 @@ contains
       call sendrecv_elements_from_neighbors(parameters)
 
       ! WE NEED TO MAKE SURE WE CHECK FOR -1 meaning non-existant rank
-      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_send_request, ierr)
-      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_recv_request, ierr)
+      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_send_request)
+      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_recv_request)
 
       do ii = 1, parameters%num_block_neighbors
          if(parameters%neighbors(ii) > neighbor_non_existant_rank) then
