@@ -1,5 +1,5 @@
 module print_module
-   use rank_parameters_module, only: rank_struct
+   use rank_parameters_module, only: rank_type
    use utility_functions_module, only: IDX_XD
    use mpi_wrapper_module,
    implicit none
@@ -47,10 +47,9 @@ contains
 
    end subroutine print_cartesian_grid
 
-
    !> Print rank parameters
    subroutine print_rank_parameters(parameters, filename)
-      type(rank_struct), intent(in) :: parameters
+      type(rank_type), intent(in) :: parameters
       character(255), intent(in) :: filename
       integer :: iounit, ios
       character(255) :: file_with_rank
@@ -102,11 +101,11 @@ contains
       write(iounit, *) "Printing block matrix:"
       write(iounit, *)
 
-      if(ndims == 2) then
+      write(iounit, *) "Block size:", block_size
+      write(iounit, *) "Begin block:", begin_block
+      write(iounit, *) "End block:", end_block
 
-         write(iounit, *) "Block size:", block_size
-         write(iounit, *) "Begin block:", begin_block
-         write(iounit, *) "End block:", end_block
+      if(ndims == 2) then
 
          write(iounit, *) "Neighbor ranks:"
          do ii = 1, 3
@@ -136,6 +135,7 @@ contains
          end do
       endif
 
+      ! Needs to be updated!
       if(ndims == 3) then
          do ii = 1, block_size(1)
             write(iounit,*) 'Slice (ii = ', ii, '):'

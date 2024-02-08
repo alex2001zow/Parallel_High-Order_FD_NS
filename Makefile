@@ -25,7 +25,7 @@ LDFLAGS =
 EXEC = $(EXEC_DIR)/parallel_solver_mpi.out
 
 # Files to compile
-FILES = mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 utility_functions_module.f90 initialization_module.f90 rank_parameters_module.f90 solver_module.f90 print_module.f90 main.f90
+FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 rank_parameters_module.f90 solver_module.f90 print_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))

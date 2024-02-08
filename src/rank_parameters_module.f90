@@ -1,28 +1,42 @@
 module rank_parameters_module
+   use comm_module, only : comm_type
+   use block_module, only : block_type
    use mpi, only : MPI_REQUEST_NULL
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
-      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_cart_communicator_mpi_wrapper
+      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only : IDX_XD
-   use initialization_module, only: initialize_block_2D
    implicit none
 
    private
 
    !> Structure to hold the parameters for each rank.
-   type rank_struct
+   type rank_type
       integer :: rank, world_size, cart_comm
       integer :: ndims, num_block_elements, num_block_neighbors, num_sendrecv_elements
 
-      integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:), block_size(:), begin_block(:), end_block(:)
+      integer, allocatable :: grid_size(:), processor_dim(:), coords(:), neighbors(:)
       integer, allocatable :: neighbor_sendrecv_start_index(:)
       integer, allocatable :: neighbor_send_request(:), neighbor_recv_request(:)
-      real, allocatable :: block_matrix(:), neighbor_elements_send(:), neighbor_elements_recv(:)
-   end type rank_struct
 
-   public :: rank_struct, setup_rank_parameters, deallocate_rank_parameters
+      integer, allocatable :: block_size(:), begin_block(:), end_block(:)
+      real, allocatable :: block_matrix(:), neighbor_elements_send(:), neighbor_elements_recv(:)
+   end type rank_type
+
+   !> Structure to hold the parameters for each rank.
+   type new_rank_type
+      integer :: rank, world_size
+      integer :: ndims
+      integer, allocatable :: grid_size(:), processor_dim(:)
+
+      type(block_type) :: block
+      type(comm_type) :: comm
+
+   end type new_rank_type
+
+   public :: rank_type, setup_rank_parameters, deallocate_rank_parameters
    public :: communicate_step
 
 contains
@@ -30,7 +44,7 @@ contains
    !> Allocate and setup each ranks parameters
    subroutine setup_rank_parameters(rank_val, world_size_val, parameters)
       integer, intent(in) :: rank_val, world_size_val
-      type(rank_struct), intent(out) :: parameters
+      type(rank_type), intent(out) :: parameters
 
       character(255) :: dim_input_arg, temp_arg
 
@@ -89,7 +103,7 @@ contains
 
    !> Allocate rank parameters.
    subroutine allocate_rank_parameters(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       allocate(parameters%grid_size(parameters%ndims))
       allocate(parameters%processor_dim(parameters%ndims))
@@ -107,7 +121,7 @@ contains
 
    !> Deallocate rank parameters
    subroutine deallocate_rank_parameters(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       ! Deallocate the pointers
       deallocate(parameters%grid_size)
@@ -125,27 +139,27 @@ contains
       deallocate(parameters%neighbor_elements_send)
       deallocate(parameters%neighbor_elements_recv)
 
-      call free_cart_communicator_mpi_wrapper(parameters%cart_comm)
+      call free_communicator_mpi_wrapper(parameters%cart_comm)
 
    end subroutine deallocate_rank_parameters
 
    !> Allocate the block matrix
    subroutine allocate_block_matrix(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       allocate(parameters%block_matrix(parameters%num_block_elements))
    end subroutine allocate_block_matrix
 
    !> Deallocate the block matrix
    subroutine deallocate_block_matrix(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       deallocate(parameters%block_matrix)
    end subroutine deallocate_block_matrix
 
    !> Find the neighbors of each rank in a 2D or 3D grid. Would like to make it N-D but that is a bit more complicated.
    subroutine determine_moore_neighbors(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       integer :: ii, jj, kk, global_index
       integer :: indices(parameters%ndims)
@@ -204,7 +218,7 @@ contains
 
    !> Routine to find the elements to be sent and recieved from each neighbor
    subroutine allocate_neighbor_sendrecv_array(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       integer :: begin(parameters%ndims), end(parameters%ndims)
       integer :: neighbor_index, neighbor_elements_size
@@ -228,7 +242,7 @@ contains
 
    !> Routine to send and recieve elements from each neighbor
    subroutine sendrecv_elements_from_neighbors(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       integer :: begin(parameters%ndims), end(parameters%ndims)
       integer :: neighbor_index, neighbor_elements_size
@@ -320,7 +334,7 @@ contains
 
    !> Communicate step
    subroutine communicate_step(parameters)
-      type(rank_struct), intent(inout) :: parameters
+      type(rank_type), intent(inout) :: parameters
 
       integer :: ii
 
@@ -334,7 +348,7 @@ contains
 
       call sendrecv_elements_from_neighbors(parameters)
 
-      ! WE NEED TO MAKE SURE WE CHECK FOR -1 meaning non-existant rank
+      ! ! WE NEED TO MAKE SURE WE CHECK FOR -1 meaning non-existant rank
       call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_send_request)
       call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_recv_request)
 

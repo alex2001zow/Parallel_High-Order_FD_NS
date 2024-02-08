@@ -14,7 +14,7 @@ module mpi_wrapper_module
 
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_cart_communicator_mpi_wrapper
+      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
 
 contains
 
@@ -135,7 +135,7 @@ contains
    end subroutine cart_rank_mpi_wrapper
 
    !> Free a Cartesian communicator
-   subroutine free_cart_communicator_mpi_wrapper(comm_8)
+   subroutine free_communicator_mpi_wrapper(comm_8)
       integer, intent(in) :: comm_8
       integer(kind=4) :: comm_4
 
@@ -143,7 +143,7 @@ contains
 
       call MPI_COMM_FREE(comm_4, ierr_4)
       call check_error_mpi(ierr_4)
-   end subroutine free_cart_communicator_mpi_wrapper
+   end subroutine free_communicator_mpi_wrapper
 
    !> Routine to change the MPI_COMM error handler so we can find neighbors without crashing. We restore the original using original_MPI_COMM_errhandler() when done
    subroutine change_MPI_COMM_errhandler_mpi_wrapper(comm_8)
