@@ -22,8 +22,8 @@ contains
    !> Subroutine to allocate the block structure.
    subroutine create_block_type(ndims, comm, size, coords, block_output)
       integer, intent(in) :: ndims
-      type(comm_type), intent(in) :: comm
       integer, dimension(ndims), intent(in) :: size, coords
+      type(comm_type), intent(in) :: comm
       type(block_type), intent(out) :: block_output
 
       allocate(block_output%size(ndims))
@@ -38,7 +38,7 @@ contains
       block_output%num_elements = product(size)
       allocate(block_output%matrix(block_output%num_elements))
 
-      call allocate_neighbor_sendrecv_array(ndims, comm, block_output)
+      !call allocate_neighbor_sendrecv_array(ndims, comm, block_output)
 
    end subroutine create_block_type
 
@@ -124,7 +124,7 @@ contains
          do ii = 1, block_input%size(1)
             do jj = 1, block_input%size(2)
                global_index = IDX_XD(ndims, block_input%size, [jj, ii])
-               write(iounit, *) block_input%matrix(global_index)
+               write(iounit, '(F10.3)', advance='no') block_input%matrix(global_index)
             end do
             write(iounit, *)
          end do

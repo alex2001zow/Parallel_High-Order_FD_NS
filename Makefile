@@ -10,7 +10,7 @@ EXEC_DIR = exec
 
 # Compilation flags
 OTHERFLAGS = -c
-OFLAGS = -O3
+OFLAGS = -g #-O3
 EFLAGS = -fimplicit-none -Wall -Wextra #-Werror
 IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8

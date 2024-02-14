@@ -1,6 +1,6 @@
 module rank_parameters_module
-   use comm_module, only : comm_type
-   use block_module, only : block_type
+   use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
+   use block_module, only : block_type, create_block_type, deallocate_block_type, print_block_type
    use mpi, only : MPI_REQUEST_NULL
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
@@ -27,17 +27,17 @@ module rank_parameters_module
 
    !> Structure to hold the parameters for each rank.
    type new_rank_type
-      integer :: rank, world_size
-      integer :: ndims
+      integer :: ndims, rank, world_size
       integer, allocatable :: grid_size(:), processor_dim(:)
 
-      type(block_type) :: block
       type(comm_type) :: comm
+      type(block_type) :: block
 
    end type new_rank_type
 
    public :: rank_type, setup_rank_parameters, deallocate_rank_parameters
    public :: communicate_step
+   public :: new_rank_type, create_new_rank_type, deallocate_new_rank_type, print_new_rank_type
 
 contains
 
@@ -100,6 +100,101 @@ contains
       parameters%end_block = parameters%begin_block + parameters%block_size - 1
 
    end subroutine setup_rank_parameters
+
+   subroutine create_new_rank_type(rank, world_size, parameters)
+      integer, intent(in) :: rank, world_size
+      type(new_rank_type), intent(out) :: parameters
+
+      character(255) :: dim_input_arg, temp_arg
+
+      integer :: ii
+
+      call get_command_argument(1, dim_input_arg)
+      read(dim_input_arg,*) parameters%ndims
+
+      parameters%rank = rank
+      parameters%world_size = world_size
+
+      call allocate_new_rank_type(parameters)
+
+      do ii = 1, parameters%ndims
+         call get_command_argument(ii+1, temp_arg)
+         read(temp_arg,*) parameters%grid_size(ii)
+
+         call get_command_argument(ii+1+parameters%ndims, temp_arg)
+         read(temp_arg,*) parameters%processor_dim(ii)
+
+         ! We have make sure that this is properly divisible
+         if(mod(parameters%grid_size(ii), parameters%processor_dim(ii)) /= 0) then
+            print *, "Grid size is not divisible by the number of processors in dimension ", ii
+            stop
+         end if
+
+      end do
+
+      call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
+
+      call create_block_type(parameters%ndims, parameters%comm, parameters%grid_size, parameters%comm%coords, parameters%block)
+
+   end subroutine create_new_rank_type
+
+   subroutine allocate_new_rank_type(parameters)
+      type(new_rank_type), intent(inout) :: parameters
+
+      allocate(parameters%grid_size(parameters%ndims))
+      allocate(parameters%processor_dim(parameters%ndims))
+
+   end subroutine allocate_new_rank_type
+
+   subroutine deallocate_new_rank_type(parameters)
+      type(new_rank_type), intent(inout) :: parameters
+
+      deallocate(parameters%grid_size)
+      deallocate(parameters%processor_dim)
+
+      call deallocate_cart_comm_type(parameters%comm)
+      call deallocate_block_type(parameters%block)
+
+   end subroutine deallocate_new_rank_type
+
+   subroutine print_new_rank_type(parameters, filename)
+      type(new_rank_type), intent(in) :: parameters
+      character(255), intent(in) :: filename
+      integer :: iounit, ios
+      character(255) :: file_with_rank
+
+      ! Create a modified filename by appending the rank to the original filename
+      write(file_with_rank, '(A, I0, A)') trim(filename), parameters%rank, ".txt"
+
+      ! Open the file for writing, associate it with a logical unit (iounit)
+      open(newunit=iounit, file=file_with_rank, status='replace', action='write', iostat=ios)
+
+      ! Check for errors in opening the file
+      if (ios /= 0) then
+         print *, "Error opening file: ", file_with_rank
+         return
+      endif
+
+      ! Newlines for readability
+      write(iounit, *)
+      write(iounit, *) "rank_type:"
+      write(iounit, *)
+
+      write(iounit, *) "ndims = ", parameters%ndims
+      write(iounit, *) "rank = ", parameters%rank
+      write(iounit, *) "world_size = ", parameters%world_size
+
+      write(iounit, *) "grid_size = ", parameters%grid_size
+      write(iounit, *) "processor_dim = ", parameters%processor_dim
+
+      call print_cart_comm_type(parameters%ndims, parameters%comm, iounit)
+
+      call print_block_type(parameters%ndims, parameters%block, iounit)
+
+      ! Close the file
+      close(iounit)
+
+   end subroutine print_new_rank_type
 
    !> Allocate rank parameters.
    subroutine allocate_rank_parameters(parameters)

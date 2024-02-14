@@ -44,7 +44,6 @@ contains
 
       ! Close the file
       close(iounit)
-
    end subroutine print_cartesian_grid
 
    !> Print rank parameters

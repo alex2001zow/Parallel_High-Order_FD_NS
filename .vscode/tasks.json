@@ -1,0 +1,26 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build parallel_solver_mpi.out",
+            "type": "shell",
+            "command": "make all",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run mpi",
+            "type": "shell",
+            "command": "mpirun -np 4 ${workspaceFolder}/exec/parallel_solver_mpi.out 8 8 2 2",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "isBackground": false
+        }
+    ]
+}
