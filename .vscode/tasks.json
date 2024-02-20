@@ -10,17 +10,6 @@
                 "isDefault": true
             },
             "problemMatcher": []
-        },
-        {
-            "label": "run mpi",
-            "type": "shell",
-            "command": "mpirun -np 4 ${workspaceFolder}/exec/parallel_solver_mpi.out 8 8 2 2",
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            },
-            "isBackground": false
         }
     ]
 }

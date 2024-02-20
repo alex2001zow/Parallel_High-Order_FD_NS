@@ -2,32 +2,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch MPI Program",
+            "name": "Attach to MPI Process",
             "type": "cppdbg",
-            "request": "launch",
-            "program": "/usr/bin/mpirun",
-            "args": [
-                "-np",
-                "4",
-                "${workspaceFolder}/exec/parallel_solver_mpi.out",
-                "8",
-                "8",
-                "2",
-                "2"
-            ],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "externalConsole": false,
+            "request": "attach",
+            "program": "${workspaceFolder}/exec/parallel_solver_mpi.out",
+            "processId": "${command:pickProcess}",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
-                    "ignoreFailures": false
+                    "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "build parallel_solver_mpi.out"
         }
     ]
 }

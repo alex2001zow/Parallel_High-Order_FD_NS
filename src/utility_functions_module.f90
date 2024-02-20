@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, IDX_XD_INV, get_indices
+   public :: IDX_XD, IDX_XD_INV, get_indices, sleeper_function
 
 contains
 
@@ -98,5 +98,16 @@ contains
       end if
 
    end subroutine get_indices
+
+   !> Routine to sleep for a certain amount of time. Used for debugging purposes.
+   subroutine sleeper_function()
+      implicit none
+      integer :: sleeper
+
+      sleeper = 0
+      do while(sleeper == 0)
+         call sleep(5)
+      end do
+   end subroutine sleeper_function
 
 end module utility_functions_module

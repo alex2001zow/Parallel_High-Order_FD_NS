@@ -2,7 +2,7 @@ module block_module
    use constants_module, only: neighbor_non_existant_rank
    use comm_module, only: comm_type
    use neighbor_types_module, only: get_neighbor_range
-   use utility_functions_module, only: IDX_XD
+   use utility_functions_module, only: IDX_XD, sleeper_function
    implicit none
 
    private
@@ -38,7 +38,9 @@ contains
       block_output%num_elements = product(size)
       allocate(block_output%matrix(block_output%num_elements))
 
-      !call allocate_neighbor_sendrecv_array(ndims, comm, block_output)
+      block_output%num_sendrecv_elements = 1
+
+      call allocate_neighbor_sendrecv_array(ndims, comm, block_output)
 
    end subroutine create_block_type
 
@@ -51,6 +53,9 @@ contains
       integer, dimension(ndims) :: begin, end
       integer :: neighbor_index, neighbor_elements_size
 
+      allocate(block_inout%sendrecv_start_index(comm%num_neighbors))
+      block_inout%sendrecv_start_index(:) = -1
+
       neighbor_elements_size = 1
       do neighbor_index = 1, comm%num_neighbors
          if(comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
@@ -58,10 +63,10 @@ contains
             neighbor_elements_size = product(end - begin + 1)
             block_inout%sendrecv_start_index(neighbor_index) = block_inout%num_sendrecv_elements
             block_inout%num_sendrecv_elements = block_inout%num_sendrecv_elements + neighbor_elements_size
-         else
-            block_inout%sendrecv_start_index(neighbor_index) = -1
-         endif
+         end if
       end do
+
+      block_inout%num_sendrecv_elements = block_inout%num_sendrecv_elements - 1
 
       allocate(block_inout%elements_send(block_inout%num_sendrecv_elements))
       allocate(block_inout%elements_recv(block_inout%num_sendrecv_elements))
@@ -105,7 +110,7 @@ contains
 
       ! Newlines for readability
       write(iounit, *)
-      write(iounit, *) "block_type:"
+      write(iounit, *) "block_type: "
       write(iounit, *)
 
       write(iounit, *) "size: ", block_input%size
@@ -113,14 +118,22 @@ contains
       write(iounit, *) "end: ", block_input%end
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "num_sendrecv_elements: ", block_input%num_sendrecv_elements
-      write(iounit, *) "sendrecv_start_index: ", block_input%sendrecv_start_index
-
-      write(iounit, *) "elements_send: ", block_input%elements_send
-      write(iounit, *) "elements_recv: ", block_input%elements_recv
-
-      write(iounit, *) "matrix:"
 
       if(ndims == 2) then
+
+         write(iounit, *) "sendrecv_start_index: "
+         do ii = 1, 3
+            do jj = 1, 3
+               global_index = IDX_XD(ndims, [3,3], [jj, ii])
+               write(iounit, '(I5)', advance='no') block_input%sendrecv_start_index(global_index)
+            end do
+            write(iounit, *)
+         end do
+
+         write(iounit, *) "elements_send: ", block_input%elements_send(:)
+         write(iounit, *) "elements_recv: ", block_input%elements_recv
+
+         write(iounit, *) "matrix:"
          do ii = 1, block_input%size(1)
             do jj = 1, block_input%size(2)
                global_index = IDX_XD(ndims, block_input%size, [jj, ii])

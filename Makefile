@@ -10,7 +10,7 @@ EXEC_DIR = exec
 
 # Compilation flags
 OTHERFLAGS = -c
-OFLAGS = -g #-O3
+OFLAGS = -g -O0
 EFLAGS = -fimplicit-none -Wall -Wextra #-Werror
 IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
@@ -25,7 +25,7 @@ LDFLAGS =
 EXEC = $(EXEC_DIR)/parallel_solver_mpi.out
 
 # Files to compile
-FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 rank_parameters_module.f90 solver_module.f90 print_module.f90 main.f90
+FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 neighbor_types_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 rank_module.f90 solver_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))

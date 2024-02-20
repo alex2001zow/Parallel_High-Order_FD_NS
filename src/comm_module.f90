@@ -16,7 +16,7 @@ module comm_module
       integer, allocatable :: neighbor_send_request(:), neighbor_recv_request(:)
    end type comm_type
 
-   public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
+   public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, print_cartesian_grid
 
 contains
 
@@ -36,8 +36,8 @@ contains
 
       call get_cart_neighbors(ndims, comm_output%coords, comm_output%comm, comm_output%neighbors)
 
-      comm_output%neighbor_send_request = MPI_REQUEST_NULL
-      comm_output%neighbor_recv_request = MPI_REQUEST_NULL
+      comm_output%neighbor_send_request(:) = MPI_REQUEST_NULL
+      comm_output%neighbor_recv_request(:) = MPI_REQUEST_NULL
 
    end subroutine create_cart_comm_type
 
@@ -166,16 +166,33 @@ contains
 
       ! Newlines for readability
       write(iounit, *)
-      write(iounit, *) "comm_type:"
+      write(iounit, *) "comm_type: "
       write(iounit, *)
 
       write(iounit, *) "comm: ", comm%comm
       write(iounit, *) "coords: ", comm%coords
-      write(iounit, *) "neighbor_send_request: ", comm%neighbor_send_request
-      write(iounit, *) "neighbor_recv_request: ", comm%neighbor_recv_request
 
-      write(iounit, *) "Neighbor ranks:"
       if(ndims == 2) then
+         write(iounit, *) "neighbor_send_request: "
+         do ii = 1,3
+            do jj = 1,3
+               global_index = IDX_XD(2, [3,3], [jj, ii])
+               write(iounit, '(I5)', advance='no') comm%neighbor_send_request(global_index)
+            end do
+            write(iounit, *)
+         end do
+
+
+         write(iounit, *) "neighbor_recv_request: "
+         do ii = 1,3
+            do jj = 1,3
+               global_index = IDX_XD(2, [3,3], [jj, ii])
+               write(iounit, '(I5)', advance='no') comm%neighbor_recv_request(global_index)
+            end do
+            write(iounit, *)
+         end do
+
+         write(iounit, *) "Neighbor ranks: "
          do ii = 1, 3
             do jj = 1, 3
                global_index = IDX_XD(2, [3,3], [jj, ii])
@@ -190,5 +207,42 @@ contains
       endif
 
    end subroutine print_cart_comm_type
+
+   !> A routine to print the cartesian grid of the ranks.
+   subroutine print_cartesian_grid(cart_comm, world_size, ndim, filename)
+      integer, intent(in) :: cart_comm, world_size  ! Cartesian communicator
+      integer, intent(in) :: ndim       ! Number of dimensions
+      character(len=*), intent(in) :: filename  ! Base filename
+      integer :: current_rank, iounit, ios
+      integer, dimension(ndim) :: coords  ! Coordinates in the cartesian topology
+      character(255) :: file_with_grid
+
+      ! Construct the filename by appending "_cart_grid" to the original filename
+      write(file_with_grid, '(A, "cart_grid.txt")') trim(filename)
+
+      ! Open the file for writing, replacing it if it already exists
+      open(newunit=iounit, file=trim(file_with_grid), status='replace', action='write', iostat=ios)
+
+      ! Check for errors in opening the file
+      if (ios /= 0) then
+         print *, "Error opening file: ", trim(file_with_grid)
+         return
+      endif
+
+      ! Write the header to the file
+      write(iounit, *) "Rank cartesian processor grid with dimension:", ndim
+
+      ! Iterate over all ranks in the cartesian communicator
+      do current_rank = 0, world_size - 1
+         ! Get the coordinates for the current rank
+         call get_cart_coords_mpi_wrapper(cart_comm, current_rank, ndim, coords)
+
+         ! Write the rank and its coordinates to the file
+         write(iounit, '(A, I4, A, *(I4, 1X))') "Rank ", current_rank, " coords: ", coords
+      end do
+
+      ! Close the file
+      close(iounit)
+   end subroutine print_cartesian_grid
 
 end module comm_module

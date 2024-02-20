@@ -1,5 +1,5 @@
 module solver_module
-   use rank_parameters_module, only: rank_type, communicate_step
+   use rank_module, only: rank_type, communicate_step
    implicit none
 
 
