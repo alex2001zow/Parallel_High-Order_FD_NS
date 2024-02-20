@@ -43,7 +43,7 @@ contains
 
    end subroutine finalize_mpi_wrapper
 
-   !> Subroutine wrapper for a non-blocking send operation
+   !> Subroutine wrapper for a non-blocking send and recieve operation
    subroutine isendrecv_mpi_wrapper(array_size, send_array, recv_array, array_start_index, count, &
       sendrecv_rank, comm, send_request_8, recv_request_8)
 

@@ -100,13 +100,14 @@ contains
    end subroutine get_indices
 
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
-   subroutine sleeper_function()
+   subroutine sleeper_function(sleep_time)
       implicit none
+      integer, intent(in) :: sleep_time
       integer :: sleeper
 
       sleeper = 0
       do while(sleeper == 0)
-         call sleep(5)
+         call sleep(sleep_time)
       end do
    end subroutine sleeper_function
 

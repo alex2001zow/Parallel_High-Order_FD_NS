@@ -69,7 +69,7 @@ contains
       integer, dimension(3**ndims), intent(inout) :: neighbors
 
       integer :: ii, jj, kk, global_index
-      integer :: indices(ndims)
+      integer, dimension(ndims) :: indices
       integer :: rank_of_coords, error
 
       ! Prevent MPI from aborting when we try to find neighbors that do not exist

@@ -1,4 +1,5 @@
 module rank_module
+   use mpi, only : MPI_REQUEST_NULL
    use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
    use block_module, only : block_type, create_block_type, deallocate_block_type, print_block_type
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
@@ -6,7 +7,7 @@ module rank_module
       original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
-   use utility_functions_module, only : IDX_XD
+   use utility_functions_module, only : IDX_XD, sleeper_function
    implicit none
 
    private
@@ -130,88 +131,57 @@ contains
    subroutine communicate_step(parameters)
       type(rank_type), intent(inout) :: parameters
 
-      integer :: ii
+      integer, dimension(parameters%ndims) :: begin, end
+      integer :: neighbor_index
 
-      do ii = 1, parameters%num_block_neighbors
-         if(parameters%neighbors(ii) > neighbor_non_existant_rank) then
-            call array2buffer(parameters%ndims, parameters%block_size, parameters%begin_block, parameters%end_block, &
-               parameters%block_matrix, parameters%num_block_elements, parameters%neighbor_elements_send, &
-               parameters%num_sendrecv_elements, parameters%neighbor_sendrecv_start_index(ii))
+      do neighbor_index = 1, parameters%comm%num_neighbors
+         if(parameters%comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
+            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block%size, begin, end)
+            call array2buffer(parameters%ndims, parameters%block%size, begin, end, &
+               parameters%block%matrix, parameters%block%num_elements, parameters%block%elements_send, &
+               parameters%block%num_sendrecv_elements, parameters%block%sendrecv_start_index(neighbor_index))
          end if
       end do
 
       call sendrecv_elements_from_neighbors(parameters)
 
-      ! ! WE NEED TO MAKE SURE WE CHECK FOR -1 meaning non-existant rank
-      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_send_request)
-      call waitall_mpi_wrapper(parameters%num_block_neighbors, parameters%neighbor_recv_request)
+      call waitall_mpi_wrapper(parameters%comm%num_neighbors, parameters%comm%neighbor_send_request)
+      call waitall_mpi_wrapper(parameters%comm%num_neighbors, parameters%comm%neighbor_recv_request)
 
-      do ii = 1, parameters%num_block_neighbors
-         if(parameters%neighbors(ii) > neighbor_non_existant_rank) then
-            call buffer2array(parameters%ndims, parameters%block_size, parameters%begin_block, parameters%end_block, &
-               parameters%block_matrix, parameters%num_block_elements, parameters%neighbor_elements_recv, &
-               parameters%num_sendrecv_elements, parameters%neighbor_sendrecv_start_index(ii))
+      do neighbor_index = 1, parameters%comm%num_neighbors
+         if(parameters%comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
+            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block%size, begin, end)
+            call buffer2array(parameters%ndims, parameters%block%size, begin, end, &
+               parameters%block%matrix, parameters%block%num_elements, parameters%block%elements_recv, &
+               parameters%block%num_sendrecv_elements, parameters%block%sendrecv_start_index(neighbor_index))
          end if
       end do
 
    end subroutine communicate_step
+
    !> Routine to send and recieve elements from each neighbor
    subroutine sendrecv_elements_from_neighbors(parameters)
       type(rank_type), intent(inout) :: parameters
 
-      integer :: begin(parameters%ndims), end(parameters%ndims)
+      integer, dimension(parameters%ndims) :: begin, end
       integer :: neighbor_index, neighbor_elements_size
 
-      do neighbor_index = 1, parameters%num_block_neighbors
-         if(parameters%neighbors(neighbor_index) > neighbor_non_existant_rank) then
-            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block_size, begin, end)
+      do neighbor_index = 1, parameters%comm%num_neighbors
+         if(parameters%comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
+            call get_neighbor_range(parameters%ndims, neighbor_index, parameters%block%size, begin, end)
             neighbor_elements_size = product(end - begin + 1)
-            call isendrecv_mpi_wrapper(parameters%num_sendrecv_elements, parameters%neighbor_elements_send, &
-               parameters%neighbor_elements_recv, parameters%neighbor_sendrecv_start_index(neighbor_index), &
-               neighbor_elements_size, parameters%neighbors(neighbor_index),&
-               parameters%cart_comm, parameters%neighbor_send_request(neighbor_index), &
-               parameters%neighbor_recv_request(neighbor_index))
+            call isendrecv_mpi_wrapper(parameters%block%num_sendrecv_elements, parameters%block%elements_send, &
+               parameters%block%elements_recv, parameters%block%sendrecv_start_index(neighbor_index), &
+               neighbor_elements_size, parameters%comm%neighbors(neighbor_index),&
+               parameters%comm%comm, parameters%comm%neighbor_send_request(neighbor_index), &
+               parameters%comm%neighbor_recv_request(neighbor_index))
          else
-            parameters%neighbor_send_request(neighbor_index) = MPI_REQUEST_NULL
-            parameters%neighbor_recv_request(neighbor_index) = MPI_REQUEST_NULL
+            parameters%comm%neighbor_send_request(neighbor_index) = MPI_REQUEST_NULL
+            parameters%comm%neighbor_recv_request(neighbor_index) = MPI_REQUEST_NULL
          end if
       end do
 
    end subroutine sendrecv_elements_from_neighbors
-
-   !> Routine to write data from the buffer to the array
-   subroutine buffer2array(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
-      integer, intent(in) :: ndims, buffer_start_index, array_size, buffer_size
-      integer, dimension(ndims), intent(in) :: dims, begin, end
-      real, dimension(array_size), intent(inout) :: array
-      real, dimension(buffer_size), intent(in) :: buffer
-
-      integer :: ii, jj, kk, global_index, buffer_global_index
-
-      buffer_global_index = 0
-      if(ndims == 2) then
-         do ii = begin(1),end(1)
-            do jj = begin(2),end(2)
-               global_index = IDX_XD(ndims,dims,[jj, ii])
-               array(global_index) = buffer(buffer_start_index + buffer_global_index)
-               buffer_global_index = buffer_global_index + 1
-            end do
-         end do
-      endif
-
-      if(ndims == 3) then
-         do ii = begin(1),end(1)
-            do jj = begin(2),end(2)
-               do kk = begin(3),end(3)
-                  global_index = IDX_XD(ndims,dims,[kk, jj, ii])
-                  array(global_index) = buffer(buffer_start_index + buffer_global_index)
-                  buffer_global_index = buffer_global_index + 1
-               end do
-            end do
-         end do
-      endif
-
-   end subroutine buffer2array
 
    !> Routine to write data from the array to the buffer
    subroutine array2buffer(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
@@ -247,6 +217,38 @@ contains
 
    end subroutine array2buffer
 
+   !> Routine to write data from the buffer to the array
+   subroutine buffer2array(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
+      integer, intent(in) :: ndims, buffer_start_index, array_size, buffer_size
+      integer, dimension(ndims), intent(in) :: dims, begin, end
+      real, dimension(array_size), intent(inout) :: array
+      real, dimension(buffer_size), intent(in) :: buffer
 
+      integer :: ii, jj, kk, global_index, buffer_global_index
+
+      buffer_global_index = 0
+      if(ndims == 2) then
+         do ii = begin(1),end(1)
+            do jj = begin(2),end(2)
+               global_index = IDX_XD(ndims,dims,[jj, ii])
+               array(global_index) = buffer(buffer_start_index + buffer_global_index)
+               buffer_global_index = buffer_global_index + 1
+            end do
+         end do
+      endif
+
+      if(ndims == 3) then
+         do ii = begin(1),end(1)
+            do jj = begin(2),end(2)
+               do kk = begin(3),end(3)
+                  global_index = IDX_XD(ndims,dims,[kk, jj, ii])
+                  array(global_index) = buffer(buffer_start_index + buffer_global_index)
+                  buffer_global_index = buffer_global_index + 1
+               end do
+            end do
+         end do
+      endif
+
+   end subroutine buffer2array
 
 end module rank_module

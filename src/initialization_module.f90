@@ -1,5 +1,5 @@
 module initialization_module
-   use utility_functions_module
+   use utility_functions_module, only : IDX_XD
    implicit none
 
    private
@@ -9,8 +9,8 @@ module initialization_module
 contains
 
    !> Initialize the data array with the value of the function
-   subroutine initialize_block_2D(ndim, global_dims, begin_block, dims, data)
-      integer, intent(in) :: ndim
+   subroutine initialize_block_2D(ndim, global_dims, begin_block, dims, data, rank)
+      integer, intent(in) :: ndim, rank
       integer, dimension(ndim), intent(in) :: global_dims, dims, begin_block
       real, dimension(product(dims)), intent(inout) :: data
 
@@ -20,7 +20,7 @@ contains
          do jj = 1, dims(2)
             local_index = IDX_XD(ndim, dims, [jj,ii])
             global_index = IDX_XD(ndim, global_dims, begin_block + [jj,ii] - 1)
-            data(local_index) = global_index
+            data(local_index) = rank
          end do
       end do
 

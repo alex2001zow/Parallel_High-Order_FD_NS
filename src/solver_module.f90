@@ -2,7 +2,6 @@ module solver_module
    use rank_module, only: rank_type, communicate_step
    implicit none
 
-
    private
    public :: run_solver
 
@@ -14,11 +13,14 @@ contains
       logical :: converged
 
       converged = .false.
-      max_iter = 1000
+      max_iter = 10000
 
       iter = 0
       do while (converged .neqv. .true. .and. iter < max_iter)
          call communicate_step(parameters)
+
+
+
          converged = .true.
          iter = iter + 1
       end do

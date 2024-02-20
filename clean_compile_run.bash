@@ -10,7 +10,7 @@ NUM_DIM=2
 NUM_PROCESSES=4
 
 # Grid size
-M_DIM=8
+M_DIM=64
 N_DIM=$M_DIM
 K_DIM=$M_DIM
 

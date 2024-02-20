@@ -25,7 +25,7 @@ subroutine run_simulation()
 
    ! Initialize the block
    call initialize_block_2D(rank_params%ndims, rank_params%grid_size, rank_params%block%begin,&
-      rank_params%block%size, rank_params%block%matrix)
+      rank_params%block%size, rank_params%block%matrix, rank)
 
    ! Run the solver
    converged = run_solver(rank_params)
