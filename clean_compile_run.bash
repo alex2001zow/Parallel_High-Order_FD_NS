@@ -10,7 +10,7 @@ NUM_DIM=2
 NUM_PROCESSES=4
 
 # Grid size
-M_DIM=64
+M_DIM=32
 N_DIM=$M_DIM
 K_DIM=$M_DIM
 
@@ -26,7 +26,7 @@ rm -f output/*.txt
 make clean
 
 # Compile the program
-make all
+make debug
 
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program
