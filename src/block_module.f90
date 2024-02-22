@@ -130,8 +130,8 @@ contains
             write(iounit, *)
          end do
 
-         write(iounit, *) "elements_send: ", block_input%elements_send(:)
-         write(iounit, *) "elements_recv: ", block_input%elements_recv
+         write(iounit, '(A, *(F10.3))') "elements_send: ", block_input%elements_send(:)
+         write(iounit, '(A, *(F10.3))') "elements_recv: ", block_input%elements_recv(:)
 
          write(iounit, *) "matrix:"
          do ii = 1, block_input%size(1)

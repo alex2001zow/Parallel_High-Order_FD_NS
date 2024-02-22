@@ -11,6 +11,7 @@ subroutine run_simulation()
    use comm_module, only: print_cartesian_grid
    use solver_module, only: run_solver
    use initialization_module, only: initialize_block_2D
+   use finite_difference_module, only: FDstencil_type, create_finite_difference_stencil, deallocate_finite_difference_stencil
    implicit none
 
    type(rank_type) :: rank_params

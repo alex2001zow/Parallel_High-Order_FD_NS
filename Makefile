@@ -24,7 +24,7 @@ IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fopenmp -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Linker flags for linking
-LDFLAGS = 
+LDFLAGS = -llapack -lblas
 
 # Executable name
 EXEC = $(EXEC_DIR)/$(PROGNAME).out

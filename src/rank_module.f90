@@ -2,6 +2,8 @@ module rank_module
    use mpi, only : MPI_REQUEST_NULL
    use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
    use block_module, only : block_type, create_block_type, deallocate_block_type, print_block_type
+   use finite_difference_module, only : FDstencil_type, create_finite_difference_stencil, &
+      deallocate_finite_difference_stencil, print_finite_difference_stencil
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
@@ -18,6 +20,7 @@ module rank_module
       integer, allocatable :: grid_size(:), processor_dim(:)
 
       type(comm_type) :: comm
+      type(FDstencil_type) :: FDstencil
       type(block_type) :: block
 
    end type rank_type
@@ -61,6 +64,8 @@ contains
 
       call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
 
+      call create_finite_difference_stencil(parameters%ndims, [1,1], [1.0,1.0], [1,1], [1,1], parameters%FDstencil)
+
       call create_block_type(parameters%ndims, parameters%comm, parameters%grid_size/parameters%processor_dim,&
          parameters%comm%coords, parameters%block)
 
@@ -83,6 +88,7 @@ contains
       deallocate(parameters%processor_dim)
 
       call deallocate_cart_comm_type(parameters%comm)
+      call deallocate_finite_difference_stencil(parameters%FDstencil)
       call deallocate_block_type(parameters%block)
 
    end subroutine deallocate_rank_type
@@ -120,6 +126,8 @@ contains
 
       call print_cart_comm_type(parameters%ndims, parameters%comm, iounit)
 
+      call print_finite_difference_stencil(parameters%ndims, parameters%FDstencil, iounit)
+
       call print_block_type(parameters%ndims, parameters%block, iounit)
 
       ! Close the file
@@ -128,6 +136,7 @@ contains
    end subroutine print_rank_type
 
    !> Routine to communicate with the neighbors
+   !! We could edit this routine to initate the recieve first then write to the buffer send and then check if recv write to buffer then wait for send and done.
    subroutine communicate_step(parameters)
       type(rank_type), intent(inout) :: parameters
 
