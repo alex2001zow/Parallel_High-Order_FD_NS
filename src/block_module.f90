@@ -77,27 +77,15 @@ contains
    subroutine deallocate_block_type(block_input)
       type(block_type), intent(inout) :: block_input
 
-      if(allocated(block_input%size)) then
-         deallocate(block_input%size)
-      endif
-      if(allocated(block_input%begin)) then
-         deallocate(block_input%begin)
-      endif
-      if(allocated(block_input%end)) then
-         deallocate(block_input%end)
-      endif
-      if(allocated(block_input%matrix)) then
-         deallocate(block_input%matrix)
-      endif
-      if(allocated(block_input%elements_send)) then
-         deallocate(block_input%elements_send)
-      endif
-      if(allocated(block_input%elements_recv)) then
-         deallocate(block_input%elements_recv)
-      endif
-      if(allocated(block_input%sendrecv_start_index)) then
-         deallocate(block_input%sendrecv_start_index)
-      endif
+      if(allocated(block_input%size)) deallocate(block_input%size)
+      if(allocated(block_input%begin)) deallocate(block_input%begin)
+      if(allocated(block_input%end)) deallocate(block_input%end)
+      if(allocated(block_input%matrix)) deallocate(block_input%matrix)
+      if(allocated(block_input%elements_send)) deallocate(block_input%elements_send)
+      if(allocated(block_input%elements_recv)) deallocate(block_input%elements_recv)
+
+      if(allocated(block_input%sendrecv_start_index)) deallocate(block_input%sendrecv_start_index)
+
 
    end subroutine deallocate_block_type
 

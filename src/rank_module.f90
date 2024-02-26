@@ -40,6 +40,13 @@ contains
 
       integer :: ii
 
+      integer, parameter :: num_derivatives = 2
+      integer, dimension(2*num_derivatives), parameter :: derivatives = [1,3,3,1]
+      real, dimension(num_derivatives), parameter :: derivatives_sign = [1,1]
+
+      integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
+      real, dimension(2), parameter :: dx = [1.0,1.0]
+
       call get_command_argument(1, dim_input_arg)
       read(dim_input_arg,*) parameters%ndims
 
@@ -64,7 +71,8 @@ contains
 
       call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
 
-      call create_finite_difference_stencil(parameters%ndims, [1,1], [1.0,1.0], [1,1], [1,1], parameters%FDstencil)
+      call create_finite_difference_stencil(parameters%ndims, num_derivatives, derivatives, derivatives_sign,&
+         dx, alphas, betas, parameters%FDstencil)
 
       call create_block_type(parameters%ndims, parameters%comm, parameters%grid_size/parameters%processor_dim,&
          parameters%comm%coords, parameters%block)
@@ -84,8 +92,8 @@ contains
    subroutine deallocate_rank_type(parameters)
       type(rank_type), intent(inout) :: parameters
 
-      deallocate(parameters%grid_size)
-      deallocate(parameters%processor_dim)
+      if (allocated(parameters%grid_size)) deallocate(parameters%grid_size)
+      if (allocated(parameters%processor_dim)) deallocate(parameters%processor_dim)
 
       call deallocate_cart_comm_type(parameters%comm)
       call deallocate_finite_difference_stencil(parameters%FDstencil)

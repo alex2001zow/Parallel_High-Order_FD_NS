@@ -141,18 +141,10 @@ contains
 
       call free_communicator_mpi_wrapper(comm%comm)
 
-      if(allocated(comm%coords)) then
-         deallocate(comm%coords)
-      endif
-      if(allocated(comm%neighbors)) then
-         deallocate(comm%neighbors)
-      endif
-      if(allocated(comm%neighbor_send_request)) then
-         deallocate(comm%neighbor_send_request)
-      endif
-      if(allocated(comm%neighbor_recv_request)) then
-         deallocate(comm%neighbor_recv_request)
-      endif
+      if(allocated(comm%coords)) deallocate(comm%coords)
+      if(allocated(comm%neighbors)) deallocate(comm%neighbors)
+      if(allocated(comm%neighbor_send_request)) deallocate(comm%neighbor_send_request)
+      if(allocated(comm%neighbor_recv_request)) deallocate(comm%neighbor_recv_request)
 
    end subroutine deallocate_cart_comm_type
 
