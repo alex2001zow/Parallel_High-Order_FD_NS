@@ -168,7 +168,7 @@ contains
          write(iounit, *) "neighbor_send_request: "
          do ii = 1,3
             do jj = 1,3
-               global_index = IDX_XD(2, [3,3], [jj, ii])
+               global_index = IDX_XD(2, [3,3], [ii, jj])
                write(iounit, '(I5)', advance='no') comm%neighbor_send_request(global_index)
             end do
             write(iounit, *)
@@ -178,7 +178,7 @@ contains
          write(iounit, *) "neighbor_recv_request: "
          do ii = 1,3
             do jj = 1,3
-               global_index = IDX_XD(2, [3,3], [jj, ii])
+               global_index = IDX_XD(2, [3,3], [ii, jj])
                write(iounit, '(I5)', advance='no') comm%neighbor_recv_request(global_index)
             end do
             write(iounit, *)
@@ -187,7 +187,7 @@ contains
          write(iounit, *) "Neighbor ranks: "
          do ii = 1, 3
             do jj = 1, 3
-               global_index = IDX_XD(2, [3,3], [jj, ii])
+               global_index = IDX_XD(2, [3,3], [ii, jj])
                write(iounit, '(I5)', advance='no') comm%neighbors(global_index)
             end do
             write(iounit, *)

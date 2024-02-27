@@ -45,7 +45,7 @@ contains
       real, dimension(num_derivatives), parameter :: derivatives_sign = [1,1]
 
       integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
-      real, dimension(2), parameter :: dx = [1.0,1.0]
+      real, dimension(2) :: dx
 
       call get_command_argument(1, dim_input_arg)
       read(dim_input_arg,*) parameters%ndims
@@ -67,6 +67,7 @@ contains
             print *, "Grid size is not divisible by the number of processors in dimension ", ii
             stop
          end if
+         dx(ii) = 1.0/parameters%grid_size(ii)
       end do
 
       call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
@@ -213,7 +214,7 @@ contains
       if(ndims == 2) then
          do ii = begin(1),end(1)
             do jj = begin(2),end(2)
-               global_index = IDX_XD(ndims, dims, [jj, ii])
+               global_index = IDX_XD(ndims, dims, [ii, jj])
                buffer(buffer_start_index + buffer_global_index) = array(global_index)
                buffer_global_index = buffer_global_index + 1
             end do
@@ -224,7 +225,7 @@ contains
          do ii = begin(1),end(1)
             do jj = begin(2),end(2)
                do kk = begin(3),end(3)
-                  global_index = IDX_XD(ndims, dims, [kk, jj, ii])
+                  global_index = IDX_XD(ndims, dims, [ii, jj, kk])
                   buffer(buffer_start_index + buffer_global_index) = array(global_index)
                   buffer_global_index = buffer_global_index + 1
                end do
@@ -247,7 +248,7 @@ contains
       if(ndims == 2) then
          do ii = begin(1),end(1)
             do jj = begin(2),end(2)
-               global_index = IDX_XD(ndims,dims,[jj, ii])
+               global_index = IDX_XD(ndims,dims,[ii, jj])
                array(global_index) = buffer(buffer_start_index + buffer_global_index)
                buffer_global_index = buffer_global_index + 1
             end do
@@ -258,7 +259,7 @@ contains
          do ii = begin(1),end(1)
             do jj = begin(2),end(2)
                do kk = begin(3),end(3)
-                  global_index = IDX_XD(ndims,dims,[kk, jj, ii])
+                  global_index = IDX_XD(ndims,dims,[ii, jj, kk])
                   array(global_index) = buffer(buffer_start_index + buffer_global_index)
                   buffer_global_index = buffer_global_index + 1
                end do

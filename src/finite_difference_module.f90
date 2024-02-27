@@ -1,5 +1,5 @@
 module finite_difference_module
-   use utility_functions_module, only : IDX_XD_REVERSED, sleeper_function, print_matrix, flip_1d_integer_array
+   use utility_functions_module, only : IDX_XD, sleeper_function, print_matrix
    use block_module, only : block_type
    implicit none
 
@@ -108,7 +108,7 @@ contains
       if(ndims == 2) then
          do ii = -FDstencil_type_input%alphas(1), FDstencil_type_input%betas(1)
             do jj = -FDstencil_type_input%alphas(2), FDstencil_type_input%betas(2)
-               global_index = IDX_XD_REVERSED(ndims, FDstencil_type_input%stencil_sizes, index)
+               global_index = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index)
                if (ii == 0 .and. jj == 0) then
                   write(iounit, '(F10.3,A)', advance='no') FDstencil_type_input%stencil_coefficients(global_index), "*"
                else
@@ -149,7 +149,7 @@ contains
 
       ! Initialize the stencil coefficients. It starts as the rhs of the linear system.
       stencil_coefficients = 0.0
-      stencil_coefficients(IDX_XD_REVERSED(ndims, stencil_sizes, derivative)) = 1.0
+      stencil_coefficients(IDX_XD(ndims, stencil_sizes, derivative)) = 1.0
 
       global_index = 1
       do ii = -alphas(1), betas(1)
@@ -193,7 +193,7 @@ contains
          do jj = 0, stencil_dims(2)-1
             numerator(2) = dx(2) ** jj
             denominator(2) = gamma(real(jj+1))
-            global_index = IDX_XD_REVERSED(ndims, stencil_dims, [ii+1,jj+1])
+            global_index = IDX_XD(ndims, stencil_dims, [ii+1,jj+1])
             taylor_coefficients(global_index) = product(numerator) / product(denominator)
          end do
       end do
@@ -202,26 +202,26 @@ contains
 
    !> Apply the finite difference stencil to a matrix
    !! Replace IDX_XD with a more efficient way to calculate the global index
-   function apply_FDstencil(ndims, FDstencil_type_input, block, index) result(value)
+   function apply_FDstencil(ndims, FDstencil_type_input, block, index) result(val)
       integer, intent(in) :: ndims
       type(FDstencil_type), intent(in) :: FDstencil_type_input
       type(block_type), intent(in) :: block
       integer, dimension(ndims), intent(in) :: index
 
-      real :: value
+      real :: val
       integer :: ii, jj, global_index_stencil, global_index_matrix
 
       integer, dimension(ndims) :: index_stencil
 
-      index_stencil = 1
+      index_stencil(:) = 1
 
-      value = 0.0
+      val = 0.0
 
       do ii = -FDstencil_type_input%alphas(1), FDstencil_type_input%betas(1)
          do jj = -FDstencil_type_input%alphas(2), FDstencil_type_input%betas(2)
-            global_index_matrix = IDX_XD_REVERSED(ndims, block%size, index + [ii,jj])
-            global_index_stencil = IDX_XD_REVERSED(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
-            value = value + FDstencil_type_input%stencil_coefficients(global_index_stencil) * block%matrix(global_index_matrix)
+            global_index_matrix = IDX_XD(ndims, block%size, index + [ii,jj])
+            global_index_stencil = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
+            val = val + FDstencil_type_input%stencil_coefficients(global_index_stencil) * block%matrix(global_index_matrix)
             index_stencil(2) = index_stencil(2) + 1
          end do
          index_stencil(1) = index_stencil(1) + 1

@@ -16,7 +16,7 @@ subroutine run_simulation()
 
    type(rank_type) :: rank_params
    integer :: rank, world_size
-   logical :: converged
+   integer, dimension(2) :: result_array
 
    ! Initialize MPI
    call initialize_mpi_wrapper(rank, world_size)
@@ -29,10 +29,11 @@ subroutine run_simulation()
       rank_params%block%size, rank_params%block%matrix, rank)
 
    ! Run the solver
-   converged = run_solver(rank_params)
+   !result_array = run_solver(rank_params)
 
    ! Write out the cartesian grid from the master rank
    if(rank_params%rank == MASTER_RANK) then
+      print *, result_array
       call print_cartesian_grid(rank_params%comm%comm, rank_params%world_size, rank_params%ndims, filename)
    end if
 

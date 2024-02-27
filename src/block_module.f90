@@ -112,7 +112,7 @@ contains
          write(iounit, *) "sendrecv_start_index: "
          do ii = 1, 3
             do jj = 1, 3
-               global_index = IDX_XD(ndims, [3,3], [jj, ii])
+               global_index = IDX_XD(ndims, [3,3], [ii, jj])
                write(iounit, '(I5)', advance='no') block_input%sendrecv_start_index(global_index)
             end do
             write(iounit, *)
@@ -124,7 +124,7 @@ contains
          write(iounit, *) "matrix:"
          do ii = 1, block_input%size(1)
             do jj = 1, block_input%size(2)
-               global_index = IDX_XD(ndims, block_input%size, [jj, ii])
+               global_index = IDX_XD(ndims, block_input%size, [ii, jj])
                write(iounit, '(F10.3)', advance='no') block_input%matrix(global_index)
             end do
             write(iounit, *)

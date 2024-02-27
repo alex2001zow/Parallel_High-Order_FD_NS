@@ -11,6 +11,8 @@ module constants_module
    integer, parameter :: neighbor_current_rank = -10
    integer, parameter :: neighbor_non_existant_rank = -1
 
-   public :: filename, MASTER_RANK, neighbor_current_rank, neighbor_non_existant_rank
+   real, parameter :: pi = 3.1415926535897932384626433832795
+
+   public :: filename, MASTER_RANK, neighbor_current_rank, neighbor_non_existant_rank, pi
 
 end module constants_module

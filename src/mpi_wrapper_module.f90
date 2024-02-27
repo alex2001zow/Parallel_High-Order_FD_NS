@@ -14,7 +14,7 @@ module mpi_wrapper_module
 
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
+      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper
 
 contains
 
@@ -180,6 +180,24 @@ contains
 
    end subroutine original_MPI_COMM_errhandler_mpi_wrapper
 
+   !> This subroutine is a wrapper for the MPI_ALLREDUCE function
+   subroutine all_reduce_mpi_wrapper(sendbuf, recvbuf, count, datatype, op, comm)
+      integer, intent(in) :: count, datatype, op, comm
+      real, dimension(count), intent(in) :: sendbuf
+      real, dimension(count), intent(out) :: recvbuf
+
+      integer(kind=4) :: count_4, datatype_4, op_4, comm_4
+
+      count_4 = count
+      datatype_4 = datatype
+      op_4 = op
+      comm_4 = comm
+
+      call MPI_ALLREDUCE(sendbuf, recvbuf, count_4, datatype_4, op_4, comm_4, ierr_4)
+      call check_error_mpi(ierr_4)
+   end subroutine all_reduce_mpi_wrapper
+
+   !> This subroutine checks for an MPI error and aborts if there is one
    subroutine check_error_mpi(ierr_4_input)
       integer(kind=4), intent(in) :: ierr_4_input
       character(len=MPI_MAX_ERROR_STRING) :: error_string
