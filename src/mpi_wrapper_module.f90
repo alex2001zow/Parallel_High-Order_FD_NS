@@ -14,7 +14,8 @@ module mpi_wrapper_module
 
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper
+      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper, &
+      write_to_file_mpi_wrapper, check_openmpi_version
 
 contains
 
@@ -197,6 +198,32 @@ contains
       call check_error_mpi(ierr_4)
    end subroutine all_reduce_mpi_wrapper
 
+   !> Write the block to the file using MPI-IO
+   subroutine write_to_file_mpi_wrapper(filename, comm, buffer, count, datatype, offset)
+      character(len=*), intent(in) :: filename
+      integer, intent(in) :: comm, count, datatype
+      real, dimension(count), intent(in) :: buffer
+
+      integer(kind=4) :: comm_4, count_4, datatype_4
+
+      integer(kind=MPI_OFFSET_KIND), intent(in) :: offset
+      integer(kind=4) :: file_handle_4
+      integer(kind=4), dimension(MPI_STATUS_SIZE) :: status
+
+      comm_4 = comm
+      count_4 = count
+      datatype_4 = datatype
+
+      call MPI_FILE_OPEN(comm_4, filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, file_handle_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_FILE_WRITE_AT(file_handle_4, offset, buffer, count_4, datatype_4, status, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_FILE_CLOSE(file_handle_4, ierr_4)
+      call check_error_mpi(ierr_4)
+   end subroutine write_to_file_mpi_wrapper
+
    !> This subroutine checks for an MPI error and aborts if there is one
    subroutine check_error_mpi(ierr_4_input)
       integer(kind=4), intent(in) :: ierr_4_input
@@ -209,5 +236,17 @@ contains
          call MPI_ABORT(MPI_COMM_WORLD, ierr_4_input, ierr_4_temp)
       end if
    end subroutine check_error_mpi
+
+   !> Subroutine to check OPENMPI version
+   subroutine check_openmpi_version()
+      integer(kind=4) :: major_version, minor_version
+      character(len=100) :: version_string
+
+      call MPI_GET_VERSION(major_version, minor_version, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      write(version_string, '(I3,".",I3,".",I3)') major_version, minor_version
+      print *, 'OpenMPI version: ', trim(version_string)
+   end subroutine check_openmpi_version
 
 end module mpi_wrapper_module

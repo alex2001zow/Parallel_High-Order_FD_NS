@@ -7,8 +7,9 @@ module finite_difference_module
 
    type FDstencil_type
       integer :: num_derivatives
-      integer, dimension(:), allocatable :: derivatives, alphas, betas, stencil_sizes
+      integer, dimension(:), allocatable :: derivatives, alphas, betas, stencil_sizes, derivatives_order
       real, dimension(:), allocatable :: derivatives_sign, dx, stencil_coefficients
+      real :: center_coefficient
    end type FDstencil_type
 
    public :: FDstencil_type, create_finite_difference_stencil, deallocate_finite_difference_stencil,&
@@ -17,10 +18,10 @@ module finite_difference_module
 contains
 
    !> Create a finite difference stencil
-   subroutine create_finite_difference_stencil(ndims, num_derivatives, derivatives, derivatives_sign, &
+   subroutine create_finite_difference_stencil(ndims, num_derivatives, derivatives, derivatives_order, derivatives_sign, &
       dx, alphas, betas, FDstencil_type_output)
       integer, intent(in) :: ndims, num_derivatives
-      integer, dimension(ndims * num_derivatives), intent(in) :: derivatives
+      integer, dimension(ndims * num_derivatives), intent(in) :: derivatives, derivatives_order
       integer, dimension(ndims), intent(in) :: alphas, betas
       real,  dimension(ndims), intent(in) :: dx
       real,  dimension(num_derivatives), intent(in) :: derivatives_sign
@@ -32,6 +33,7 @@ contains
       integer, dimension(ndims) :: derivative
 
       allocate(FDstencil_type_output%derivatives(ndims * num_derivatives))
+      allocate(FDstencil_type_output%derivatives_order(ndims* num_derivatives)) ! Could be calculated from the input
       allocate(FDstencil_type_output%derivatives_sign(num_derivatives))
       allocate(FDstencil_type_output%dx(ndims))
       allocate(FDstencil_type_output%alphas(ndims))
@@ -41,6 +43,7 @@ contains
       FDstencil_type_output%num_derivatives = num_derivatives
       FDstencil_type_output%derivatives = derivatives
       FDstencil_type_output%derivatives_sign = derivatives_sign
+      FDstencil_type_output%derivatives_order = derivatives_order
       FDstencil_type_output%dx = dx
       FDstencil_type_output%alphas = alphas
       FDstencil_type_output%betas = betas
@@ -53,13 +56,17 @@ contains
 
       do ii = 1, num_derivatives
          derivative = derivatives((ii-1)*ndims+1:ii*ndims)
-         call finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
-            FDstencil_type_output%stencil_sizes, derivative, FDstencil_type_output%dx, &
+         call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
+            FDstencil_type_output%stencil_sizes, derivative, &
             temp_stencil_coefficients)
 
          FDstencil_type_output%stencil_coefficients = FDstencil_type_output%stencil_coefficients + &
-            derivatives_sign(ii) * temp_stencil_coefficients
+            derivatives_sign(ii) * temp_stencil_coefficients / product(dx**derivatives_order((ii-1)*ndims+1:ii*ndims))
       end do
+
+      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1
+      FDstencil_type_output%center_coefficient = FDstencil_type_output%stencil_coefficients(IDX_XD(ndims, &
+         FDstencil_type_output%stencil_sizes, alphas + 1))
 
       deallocate(temp_stencil_coefficients)
 
@@ -102,6 +109,7 @@ contains
       write(iounit, *) "alphas: ", FDstencil_type_input%alphas
       write(iounit, *) "betas: ", FDstencil_type_input%betas
       write(iounit, *) "stencil_sizes: ", FDstencil_type_input%stencil_sizes
+      write(iounit, *) "center_coefficient: ", FDstencil_type_input%center_coefficient
 
       write(iounit, *)
       write(iounit, *) "stencil_coefficients: "
@@ -130,11 +138,10 @@ contains
 
    !> Calculate the finite difference stencil coefficients.
    !! sum_{n=-alpha_1}^{beta_1} sum_{m=-alpha_2}^{beta_2} a_nm * A_ij
-   subroutine finite_difference_stencil(ndims, alphas, betas, stencil_sizes, derivative, dx, stencil_coefficients)
+   subroutine calculate_finite_difference_stencil(ndims, alphas, betas, stencil_sizes, derivative, stencil_coefficients)
       integer, intent(in) :: ndims
 
       integer, dimension(ndims), intent(in) :: alphas, betas, stencil_sizes, derivative
-      real, dimension(ndims), intent(in) :: dx
 
       real, dimension(product(stencil_sizes)), intent(out) :: stencil_coefficients
 
@@ -154,7 +161,7 @@ contains
       global_index = 1
       do ii = -alphas(1), betas(1)
          do jj = -alphas(2), betas(2)
-            call calculate_taylor_coefficients(ndims, stencil_sizes, dx * [ii, jj], taylor_coefficients)
+            call calculate_taylor_coefficients(ndims, stencil_sizes, REAL([ii, jj],kind=8), taylor_coefficients)
 
             coefficient_matrix(global_index:global_index + stride - 1) = taylor_coefficients
             global_index = global_index + stride
@@ -169,16 +176,16 @@ contains
          stop
       end if
 
-   end subroutine finite_difference_stencil
+   end subroutine calculate_finite_difference_stencil
 
    !> Calculate the Taylor coefficients up to order s
    !! A_ij = sum_{i=0}^{p-1} sum_{j=0}^{q-1} 1/(i! * j!) (n*h)^i * (m*k)^j
    !! Here the factorial is slow. We could use the loop to calculate the factorial. But this is for another time.
-   subroutine calculate_taylor_coefficients(ndims, stencil_dims, dx, taylor_coefficients)
+   subroutine calculate_taylor_coefficients(ndims, stencil_sizes, dx, taylor_coefficients)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: stencil_dims
+      integer, dimension(ndims), intent(in) :: stencil_sizes
       real, dimension(ndims), intent(in) :: dx
-      real, dimension(product(stencil_dims)), intent(out) :: taylor_coefficients
+      real, dimension(product(stencil_sizes)), intent(out) :: taylor_coefficients
 
       integer :: ii, jj, global_index
       real :: numerator(ndims), denominator(ndims)
@@ -187,13 +194,13 @@ contains
       denominator = 0.0
       taylor_coefficients = 0.0
 
-      do ii = 0, stencil_dims(1)-1
-         numerator(1) = dx(1) ** ii
-         denominator(1) = gamma(real(ii+1))
-         do jj = 0, stencil_dims(2)-1
-            numerator(2) = dx(2) ** jj
-            denominator(2) = gamma(real(jj+1))
-            global_index = IDX_XD(ndims, stencil_dims, [ii+1,jj+1])
+      do ii = 0, stencil_sizes(1)-1
+         numerator(1) = dx(1) ** REAL(ii,kind=8)
+         denominator(1) = gamma(REAL(ii+1,kind=8))
+         do jj = 0, stencil_sizes(2)-1
+            numerator(2) = dx(2) ** REAL(jj,kind=8)
+            denominator(2) = gamma(REAL(jj+1,kind=8))
+            global_index = IDX_XD(ndims, stencil_sizes, [ii+1,jj+1])
             taylor_coefficients(global_index) = product(numerator) / product(denominator)
          end do
       end do
@@ -208,7 +215,7 @@ contains
       type(block_type), intent(in) :: block
       integer, dimension(ndims), intent(in) :: index
 
-      real :: val
+      real :: stencil_val, matrix_val, val
       integer :: ii, jj, global_index_stencil, global_index_matrix
 
       integer, dimension(ndims) :: index_stencil
@@ -219,9 +226,17 @@ contains
 
       do ii = -FDstencil_type_input%alphas(1), FDstencil_type_input%betas(1)
          do jj = -FDstencil_type_input%alphas(2), FDstencil_type_input%betas(2)
+            ! Skip the center coefficient. This method of using if-statements is slow!!!
+            if(ii == 0 .and. jj == 0) then
+               continue
+            end if
             global_index_matrix = IDX_XD(ndims, block%size, index + [ii,jj])
             global_index_stencil = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
-            val = val + FDstencil_type_input%stencil_coefficients(global_index_stencil) * block%matrix(global_index_matrix)
+
+            stencil_val = FDstencil_type_input%stencil_coefficients(global_index_stencil)
+            matrix_val = block%matrix(global_index_matrix)
+
+            val = val + stencil_val * matrix_val
             index_stencil(2) = index_stencil(2) + 1
          end do
          index_stencil(1) = index_stencil(1) + 1

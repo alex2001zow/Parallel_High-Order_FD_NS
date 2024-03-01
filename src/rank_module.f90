@@ -1,12 +1,13 @@
 module rank_module
-   use mpi, only : MPI_REQUEST_NULL
+   use mpi, only : MPI_REQUEST_NULL, MPI_DOUBLE_PRECISION
    use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
    use block_module, only : block_type, create_block_type, deallocate_block_type, print_block_type
    use finite_difference_module, only : FDstencil_type, create_finite_difference_stencil, &
       deallocate_finite_difference_stencil, print_finite_difference_stencil
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
-      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper
+      original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, &
+      write_to_file_mpi_wrapper
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only : IDX_XD, sleeper_function
@@ -17,7 +18,8 @@ module rank_module
    !> Structure to hold the parameters for each rank.
    type rank_type
       integer :: ndims, rank, world_size
-      integer, allocatable :: grid_size(:), processor_dim(:)
+      integer, dimension(:), allocatable :: grid_size, processor_dim
+      real, dimension(:), allocatable :: domain_begin, domain_end
 
       type(comm_type) :: comm
       type(FDstencil_type) :: FDstencil
@@ -27,6 +29,7 @@ module rank_module
 
    public :: rank_type, create_rank_type, deallocate_rank_type, print_rank_type
    public :: communicate_step
+   public :: write_rank_type_blocks_to_file
 
 
 contains
@@ -42,6 +45,7 @@ contains
 
       integer, parameter :: num_derivatives = 2
       integer, dimension(2*num_derivatives), parameter :: derivatives = [1,3,3,1]
+      integer, dimension(2*num_derivatives), parameter :: derivatives_order = [0,2,2,0]
       real, dimension(num_derivatives), parameter :: derivatives_sign = [1,1]
 
       integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
@@ -67,12 +71,16 @@ contains
             print *, "Grid size is not divisible by the number of processors in dimension ", ii
             stop
          end if
-         dx(ii) = 1.0/parameters%grid_size(ii)
+
+         parameters%domain_begin(ii) = 0.0
+         parameters%domain_end(ii) = 1.0
+
+         dx(ii) = abs((parameters%domain_end(ii) - parameters%domain_begin(ii))) / (parameters%grid_size(ii) - 1)
       end do
 
       call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
 
-      call create_finite_difference_stencil(parameters%ndims, num_derivatives, derivatives, derivatives_sign,&
+      call create_finite_difference_stencil(parameters%ndims, num_derivatives, derivatives, derivatives_order, derivatives_sign,&
          dx, alphas, betas, parameters%FDstencil)
 
       call create_block_type(parameters%ndims, parameters%comm, parameters%grid_size/parameters%processor_dim,&
@@ -86,6 +94,8 @@ contains
 
       allocate(parameters%grid_size(parameters%ndims))
       allocate(parameters%processor_dim(parameters%ndims))
+      allocate(parameters%domain_begin(parameters%ndims))
+      allocate(parameters%domain_end(parameters%ndims))
 
    end subroutine allocate_rank_type
 
@@ -95,6 +105,8 @@ contains
 
       if (allocated(parameters%grid_size)) deallocate(parameters%grid_size)
       if (allocated(parameters%processor_dim)) deallocate(parameters%processor_dim)
+      if (allocated(parameters%domain_begin)) deallocate(parameters%domain_begin)
+      if (allocated(parameters%domain_end)) deallocate(parameters%domain_end)
 
       call deallocate_cart_comm_type(parameters%comm)
       call deallocate_finite_difference_stencil(parameters%FDstencil)
@@ -144,8 +156,24 @@ contains
 
    end subroutine print_rank_type
 
+   !> Routine to write the block data to a file
+   subroutine write_rank_type_blocks_to_file(filename, parameters)
+      character(255), intent(in) :: filename
+      type(rank_type), intent(in) :: parameters
+
+      integer :: start_global_index, offset
+
+      start_global_index = IDX_XD(parameters%ndims, parameters%grid_size, parameters%block%begin)
+
+      offset = start_global_index
+
+      call write_to_file_mpi_wrapper(filename, parameters%comm%comm, parameters%block%matrix, &
+         parameters%block%num_elements, INT(MPI_DOUBLE_PRECISION,kind=8), offset)
+
+   end subroutine write_rank_type_blocks_to_file
+
    !> Routine to communicate with the neighbors
-   !! We could edit this routine to initate the recieve first then write to the buffer send and then check if recv write to buffer then wait for send and done.
+   !! We could edit this routine to initate the recieve first then write to the send buffer, initate send and then check if recv then write to buffer then wait for send and done.
    subroutine communicate_step(parameters)
       type(rank_type), intent(inout) :: parameters
 

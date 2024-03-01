@@ -7,16 +7,16 @@ EXEC="exec/parallel_solver_mpi.out"
 NUM_DIM=2
 
 # Number of processes
-NUM_PROCESSES=4
+NUM_PROCESSES=1
 
 # Grid size
-M_DIM=16
+M_DIM=128
 N_DIM=$M_DIM
 K_DIM=$M_DIM
 
 # Number of processors in each dimension
-M_PROCESSORS=2
-N_PROCESSORS=2
+M_PROCESSORS=1
+N_PROCESSORS=1
 K_PROCESSORS=1
 
 # Clean output

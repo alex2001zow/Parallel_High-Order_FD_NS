@@ -1,5 +1,5 @@
 module solver_module
-   use mpi, only: MPI_REAL, MPI_SUM
+   use mpi, only: MPI_DOUBLE_PRECISION, MPI_SUM
    use utility_functions_module, only: IDX_XD, sleeper_function
    use block_module, only: block_type
    use rank_module, only: rank_type, communicate_step
@@ -17,75 +17,87 @@ contains
       type (rank_type), intent(inout) :: parameters
       integer :: iter, max_iter, converged
 
-      integer, dimension(2) :: result_array
+      real, dimension(4) :: result_array
 
-      real :: local_norm, global_norm, max_tol
+      real :: local_norm, global_norm, previous_norm, relative_norm, max_tol, norm_scaling
 
       real, dimension(1) :: local_norm_array, global_norm_array
 
-      local_norm = 999.0
-      global_norm = 0.0
+      norm_scaling = 1.0/product(parameters%grid_size) ! Scale depending on the number of grid points
+
+      local_norm = 10e6
+      global_norm = 10e9
+      previous_norm = 10e18
+      relative_norm = 10e36
 
       converged = 0
-      max_iter = 1
+      max_iter = 100000
 
       max_tol = 1.0e-6
 
       iter = 0
       do while (converged /= 1 .and. iter < max_iter)
 
-         local_norm = Gauss_Seidel_iteration(parameters%ndims, parameters%block, parameters%FDstencil, parameters%grid_size)
-
+         local_norm = Gauss_Seidel_iteration(parameters%ndims, parameters%block, parameters%FDstencil, &
+            parameters%domain_begin)
          local_norm_array(1) = local_norm
 
-         !call all_reduce_mpi_wrapper(local_norm_array, global_norm_array, 1, &
-         !   INT(MPI_REAL,kind=8), INT(MPI_SUM,kind=8), parameters%comm%comm)
+         call all_reduce_mpi_wrapper(local_norm_array, global_norm_array, 1, &
+            INT(MPI_DOUBLE_PRECISION,kind=8), INT(MPI_SUM,kind=8), parameters%comm%comm)
 
-         global_norm = global_norm_array(1)
+         global_norm = global_norm_array(1) * norm_scaling
+         global_norm = sqrt(global_norm) ! Not sure if needed
 
-         !global_norm = sqrt(global_norm / product(parameters%grid_size))
+         relative_norm = abs((global_norm - previous_norm) / previous_norm)
 
-         if(global_norm < max_tol) then
-            !converged = 1
+         if (previous_norm > 0.0 .and. relative_norm < max_tol) then
+            converged = 1
          end if
 
-         !call communicate_step(parameters)
+         previous_norm = global_norm
+
+         call communicate_step(parameters)
 
          iter = iter + 1
       end do
 
-      result_array = [converged, iter]
+      result_array = [global_norm, relative_norm, REAL(converged,kind=8), REAL(iter,kind=8)]
 
    end function run_solver
 
    !> Gauss_Seidel_iteration with 2-norm
    !! Replace IDX_XD with a more efficient way to calculate the global index
-   function Gauss_Seidel_iteration(ndims, block, FDstencil, grid_size) result(norm)
+   function Gauss_Seidel_iteration(ndims, block, FDstencil, global_domain_begin) result(norm)
       integer, intent(in) :: ndims
       type (block_type), intent(inout) :: block
       type (FDstencil_type), intent(in) :: FDstencil
-      integer, dimension(ndims), intent(in) :: grid_size
+      real, dimension(ndims) :: global_domain_begin
 
       integer, dimension(ndims) ::index
       integer :: ii, jj, global_index
 
-      real :: f_val, norm, val
+      real :: stencil_val, f_val, new_val, norm
 
+      stencil_val = 0.0
       f_val = 0.0
+      new_val = 0.0
       norm = 0.0
-      val = 0.0
 
       do ii = 2, block%size(1)-1
          do jj = 2, block%size(2)-1
             index = [ii,jj]
             global_index = IDX_XD(ndims, block%size, index)
 
-            val = apply_FDstencil(ndims, FDstencil, block, index)/product(grid_size**ndims)
-            f_val = f_analytical_poisson_2d(ndims, grid_size, block%begin + [ii,jj])
+            stencil_val = apply_FDstencil(ndims, FDstencil, block, index)
+            f_val = f_analytical_poisson_2d(ndims, global_domain_begin, &
+               block%begin + index - 1, FDstencil%dx) ! Could be an array instead of a function. Especially if we use jacobi-solvers. Depends on the size of the system.
 
-            val = val + f_val
-            norm = norm + val**2
-            block%matrix(global_index) = val
+            new_val = -stencil_val + f_val
+            new_val = new_val / FDstencil%center_coefficient
+
+            block%matrix(global_index) = new_val
+
+            norm = norm + new_val**2
          end do
       end do
 

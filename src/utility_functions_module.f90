@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, get_indices, sleeper_function, print_matrix
+   public :: IDX_XD, get_indices, print_matrix, sleeper_function, find_abs_diff_matrices
 
 contains
 
@@ -86,6 +86,26 @@ contains
       end if
 
    end subroutine print_matrix
+
+   !> Routine to print the absolute difference between two matrices.
+   subroutine find_abs_diff_matrices(ndims, dims, matrix1, matrix2)
+      integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: dims
+      real, dimension(product(dims)), intent(in) :: matrix1, matrix2
+
+      integer :: ii, jj, global_index
+
+      if(ndims == 2) then
+         do ii = 1, dims(1)
+            do jj = 1, dims(2)
+               global_index = IDX_XD(ndims, dims, [ii, jj])
+               write(*, '(F10.3, " ")', advance="no") abs(matrix1(global_index) - matrix2(global_index))
+            end do
+            write(*, *)
+         end do
+      end if
+
+   end subroutine find_abs_diff_matrices
 
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
    subroutine sleeper_function(sleep_time)

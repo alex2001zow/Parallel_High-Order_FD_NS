@@ -10,20 +10,36 @@ module initialization_module
 contains
 
    !> Initialize the data array with the value of the function
-   subroutine initialize_block_2D(ndims, global_dims, begin_block, dims, data, rank)
-      integer, intent(in) :: ndims, rank
+   subroutine initialize_block_2D(ndims, global_dims, global_domain_begin, begin_block, dims, data)
+      integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) :: global_dims, dims, begin_block
+      real, dimension(ndims), intent(in) :: global_domain_begin
       real, dimension(product(dims)), intent(inout) :: data
 
       integer :: ii, jj, local_index, global_index
 
+      integer, dimension(ndims) :: index, block_index
+      real, dimension(ndims) :: dx
+
+      dx = 1.0 / (global_dims(:) - 1)
+
       do ii = 1, dims(1)
          do jj = 1, dims(2)
-            local_index = IDX_XD(ndims, dims, [ii,jj])
-            global_index = IDX_XD(ndims, global_dims, begin_block + [ii,jj] - 1)
-            data(local_index) = global_index!u_analytical_poisson_2d(ndims, global_dims, begin_block + [ii,jj])
+            index = [ii,jj]
+            block_index = begin_block + index - 1
+            local_index = IDX_XD(ndims, dims, index)
+            global_index = IDX_XD(ndims, global_dims, block_index)
+            data(local_index) = u_analytical_poisson_2d(ndims, global_domain_begin, block_index, dx)
          end do
       end do
+
+      ! do ii = 2, dims(1)-1
+      !    do jj = 2, dims(2)-1
+      !       index = [ii,jj]
+      !       local_index = IDX_XD(ndims, dims, index)
+      !       data(local_index) = 0.0
+      !    end do
+      ! end do
 
    end subroutine initialize_block_2D
 
