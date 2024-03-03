@@ -75,7 +75,7 @@ contains
          parameters%domain_begin(ii) = 0.0
          parameters%domain_end(ii) = 1.0
 
-         dx(ii) = abs((parameters%domain_end(ii) - parameters%domain_begin(ii))) / (parameters%grid_size(ii) - 1)
+         dx(ii) = abs((parameters%domain_end(ii) - parameters%domain_begin(ii))) / (parameters%grid_size(ii)-1)
       end do
 
       call create_cart_comm_type(parameters%ndims, parameters%processor_dim, parameters%rank, parameters%comm)
@@ -165,7 +165,7 @@ contains
 
       start_global_index = IDX_XD(parameters%ndims, parameters%grid_size, parameters%block%begin)
 
-      offset = start_global_index
+      offset = (start_global_index-1)*8
 
       call write_to_file_mpi_wrapper(filename, parameters%comm%comm, parameters%block%matrix, &
          parameters%block%num_elements, INT(MPI_DOUBLE_PRECISION,kind=8), offset)

@@ -20,7 +20,7 @@ N_PROCESSORS=1
 K_PROCESSORS=1
 
 # Clean output
-rm -f output/*.txt
+rm -f output/*
 
 # Clean previous build
 make clean
@@ -35,4 +35,6 @@ else
   # Compilation failed
   echo "Compilation failed."
 fi
+
+jupyter nbconvert --execute --inplace python/read_system_solution.ipynb
 

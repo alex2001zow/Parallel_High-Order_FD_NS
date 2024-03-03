@@ -16,7 +16,7 @@ contains
       real, dimension(ndims), intent(in) :: global_domain_begin
       real, dimension(product(dims)), intent(inout) :: data
 
-      integer :: ii, jj, local_index, global_index
+      integer :: ii, jj, local_index
 
       integer, dimension(ndims) :: index, block_index
       real, dimension(ndims) :: dx
@@ -28,7 +28,6 @@ contains
             index = [ii,jj]
             block_index = begin_block + index - 1
             local_index = IDX_XD(ndims, dims, index)
-            global_index = IDX_XD(ndims, global_dims, block_index)
             data(local_index) = u_analytical_poisson_2d(ndims, global_domain_begin, block_index, dx)
          end do
       end do
@@ -37,7 +36,7 @@ contains
       !    do jj = 2, dims(2)-1
       !       index = [ii,jj]
       !       local_index = IDX_XD(ndims, dims, index)
-      !       data(local_index) = 0.0
+      !       data(local_index) = 1.0
       !    end do
       ! end do
 

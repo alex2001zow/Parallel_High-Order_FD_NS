@@ -31,7 +31,7 @@ contains
       relative_norm = 10e36
 
       converged = 0
-      max_iter = 100000
+      max_iter = 1
 
       max_tol = 1.0e-6
 
@@ -73,8 +73,8 @@ contains
       type (FDstencil_type), intent(in) :: FDstencil
       real, dimension(ndims) :: global_domain_begin
 
-      integer, dimension(ndims) ::index
-      integer :: ii, jj, global_index
+      integer, dimension(ndims) :: index, block_index
+      integer :: ii, jj, local_index
 
       real :: stencil_val, f_val, new_val, norm
 
@@ -86,16 +86,16 @@ contains
       do ii = 2, block%size(1)-1
          do jj = 2, block%size(2)-1
             index = [ii,jj]
-            global_index = IDX_XD(ndims, block%size, index)
+            block_index = block%begin + index - 1
+            local_index = IDX_XD(ndims, block%size, index)
 
-            stencil_val = apply_FDstencil(ndims, FDstencil, block, index)
-            f_val = f_analytical_poisson_2d(ndims, global_domain_begin, &
-               block%begin + index - 1, FDstencil%dx) ! Could be an array instead of a function. Especially if we use jacobi-solvers. Depends on the size of the system.
+            stencil_val= apply_FDstencil(ndims, FDstencil, block, index)
+            f_val = f_analytical_poisson_2d(ndims, global_domain_begin, block_index, FDstencil%dx) ! Could be an array instead of a function. Especially if we use jacobi-solvers. Depends on the size of the system.
 
             new_val = -stencil_val + f_val
             new_val = new_val / FDstencil%center_coefficient
 
-            block%matrix(global_index) = new_val
+            block%matrix(local_index) = new_val
 
             norm = norm + new_val**2
          end do

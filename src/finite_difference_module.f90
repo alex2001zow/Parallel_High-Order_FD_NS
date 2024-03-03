@@ -29,7 +29,7 @@ contains
       real, dimension(:), allocatable :: temp_stencil_coefficients
       type(FDstencil_type), intent(out) :: FDstencil_type_output
 
-      integer :: ii
+      integer :: ii, index_start, index_end
       integer, dimension(ndims) :: derivative
 
       allocate(FDstencil_type_output%derivatives(ndims * num_derivatives))
@@ -55,16 +55,18 @@ contains
       allocate(temp_stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
 
       do ii = 1, num_derivatives
-         derivative = derivatives((ii-1)*ndims+1:ii*ndims)
+         index_start = (ii-1)*ndims+1
+         index_end = ii*ndims
+         derivative = derivatives(index_start:index_end)
          call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
             FDstencil_type_output%stencil_sizes, derivative, &
             temp_stencil_coefficients)
 
          FDstencil_type_output%stencil_coefficients = FDstencil_type_output%stencil_coefficients + &
-            derivatives_sign(ii) * temp_stencil_coefficients / product(dx**derivatives_order((ii-1)*ndims+1:ii*ndims))
+            derivatives_sign(ii) * temp_stencil_coefficients / product(dx**derivatives_order(index_start:index_end))
       end do
 
-      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1
+      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1. Used to "normalize" the stencil.
       FDstencil_type_output%center_coefficient = FDstencil_type_output%stencil_coefficients(IDX_XD(ndims, &
          FDstencil_type_output%stencil_sizes, alphas + 1))
 
@@ -216,7 +218,7 @@ contains
       integer, dimension(ndims), intent(in) :: index
 
       real :: stencil_val, matrix_val, val
-      integer :: ii, jj, global_index_stencil, global_index_matrix
+      integer :: ii, jj, stencil_index, block_index
 
       integer, dimension(ndims) :: index_stencil
 
@@ -228,15 +230,17 @@ contains
          do jj = -FDstencil_type_input%alphas(2), FDstencil_type_input%betas(2)
             ! Skip the center coefficient. This method of using if-statements is slow!!!
             if(ii == 0 .and. jj == 0) then
-               continue
+               index_stencil(2) = index_stencil(2) + 1
+               cycle
             end if
-            global_index_matrix = IDX_XD(ndims, block%size, index + [ii,jj])
-            global_index_stencil = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
+            stencil_index = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
+            block_index = IDX_XD(ndims, block%size, index + [ii,jj])
 
-            stencil_val = FDstencil_type_input%stencil_coefficients(global_index_stencil)
-            matrix_val = block%matrix(global_index_matrix)
+            stencil_val = FDstencil_type_input%stencil_coefficients(stencil_index)
+            matrix_val = block%matrix(block_index)
 
             val = val + stencil_val * matrix_val
+
             index_stencil(2) = index_stencil(2) + 1
          end do
          index_stencil(1) = index_stencil(1) + 1
