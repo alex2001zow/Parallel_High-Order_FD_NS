@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, get_indices, print_matrix, sleeper_function, find_abs_diff_matrices
+   public :: IDX_XD, print_matrix, sleeper_function, find_abs_diff_matrices
 
 contains
 
@@ -24,46 +24,6 @@ contains
       ! Adjust index for 1-based indexing of Fortran
       global_index = global_index + 1
    end function IDX_XD
-
-
-   !> Routine to get the indices for certain loop values OBS! MAKE SURE IT IS CORRECT. I THINK WE DO IT CORRECTLY BUT I AM NOT SURE
-   subroutine get_indices(ndims, dims, begin, end, indices)
-      integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims, begin, end
-      integer, allocatable, intent(out) :: indices(:)
-      integer :: ii, jj, kk, global_index, number_of_indices
-
-      number_of_indices = 1
-      do ii = 1,ndims
-         number_of_indices = number_of_indices * (end(ii) - begin(ii) + 1)
-      end do
-
-      allocate(indices(number_of_indices))
-
-      global_index = 1
-
-      if(ndims == 2) then
-         do ii = begin(1), end(1)
-            do jj = begin(2),end(2)
-               indices(global_index) = IDX_XD(ndims, dims, [ii, jj])
-               global_index = global_index + 1
-            end do
-         end do
-      end if
-
-      if(ndims == 3) then
-         global_index = 1
-         do ii = begin(1), end(1)
-            do jj = begin(2),end(2)
-               do kk = begin(3),end(2)
-                  indices(global_index) = IDX_XD(ndims, dims, [ii, jj, kk])
-                  global_index = global_index + 1
-               end do
-            end do
-         end do
-      end if
-
-   end subroutine get_indices
 
    !> Routine to print a matrix.
    subroutine print_matrix(ndims, dims, matrix)

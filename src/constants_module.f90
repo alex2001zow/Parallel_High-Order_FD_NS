@@ -9,6 +9,8 @@ module constants_module
       character_len - len_trim("output/output_from_"))
    character(character_len), parameter :: filename_dat = "output/system_solution.dat" // repeat(" ", &
       character_len - len_trim("output/system_solution.dat"))
+   character(character_len), parameter :: filename_layout_dat = "output/system_solution_layout.dat" // repeat(" ", &
+      character_len - len_trim("output/system_solution_layout.dat"))
 
    integer, parameter :: MASTER_RANK = 0
 
@@ -17,6 +19,8 @@ module constants_module
 
    real, parameter :: pi = 3.1415926535897932384626433832795
 
-   public :: filename_txt, filename_dat, MASTER_RANK, neighbor_current_rank, neighbor_non_existant_rank, pi
+   public :: filename_txt, filename_dat, filename_layout_dat
+   public :: MASTER_RANK, neighbor_current_rank, neighbor_non_existant_rank
+   public :: pi
 
 end module constants_module

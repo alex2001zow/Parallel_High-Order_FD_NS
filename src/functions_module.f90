@@ -7,8 +7,8 @@ private
 abstract interface
    function myFuncInterface(ndims, global_domain_begin, global_indices, dx) result (func_val)
       integer, intent(in) :: ndims
-      real, dimension(ndims), intent(in) :: global_domain_begin, dx
-      integer, dimension(ndims), intent(in) :: global_indices
+      real, intent(in) :: global_domain_begin(ndims), dx(ndims)
+      integer, intent(in) :: global_indices(ndims)
 
       real :: func_val
 

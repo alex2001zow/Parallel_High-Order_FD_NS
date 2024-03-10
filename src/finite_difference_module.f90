@@ -7,8 +7,8 @@ module finite_difference_module
 
    type FDstencil_type
       integer :: num_derivatives
-      integer, dimension(:), allocatable :: derivatives, alphas, betas, stencil_sizes, derivatives_order
-      real, dimension(:), allocatable :: derivatives_sign, dx, stencil_coefficients
+      integer, allocatable :: derivatives(:), alphas(:), betas(:), stencil_sizes(:), derivatives_order(:)
+      real, allocatable :: derivatives_sign(:), dx(:), stencil_coefficients(:)
       real :: center_coefficient
    end type FDstencil_type
 

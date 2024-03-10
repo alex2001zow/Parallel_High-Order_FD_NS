@@ -1,7 +1,6 @@
 module block_module
    use constants_module, only: neighbor_non_existant_rank
    use comm_module, only: comm_type
-   use neighbor_types_module, only: get_neighbor_range
    use utility_functions_module, only: IDX_XD, sleeper_function
    implicit none
 
@@ -20,9 +19,8 @@ module block_module
 contains
 
    !> Subroutine to allocate the block structure.
-   subroutine create_block_type(ndims, comm, size, coords, block_output)
+   subroutine create_block_type(ndims, comm, block_output)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: size, coords
       type(comm_type), intent(in) :: comm
       type(block_type), intent(out) :: block_output
 
@@ -30,28 +28,26 @@ contains
       allocate(block_output%begin(ndims))
       allocate(block_output%end(ndims))
 
-      block_output%size = size
+      block_output%begin = comm%begin
+      block_output%end = comm%end
 
-      block_output%begin = coords*size + 1
-      block_output%end = block_output%begin + size - 1
+      block_output%size = comm%size
 
-      block_output%num_elements = product(size)
+      block_output%num_elements = product(block_output%size)
       allocate(block_output%matrix(block_output%num_elements))
 
-      block_output%num_sendrecv_elements = 1
-
-      call allocate_neighbor_sendrecv_array(ndims, comm, block_output)
+      call allocate_neighbor_sendrecv_array(comm, block_output)
 
    end subroutine create_block_type
 
    !> Subroutine to allocate the neighbor sendrecv array.
-   subroutine allocate_neighbor_sendrecv_array(ndims, comm, block_inout)
-      integer, intent(in) :: ndims
+   subroutine allocate_neighbor_sendrecv_array(comm, block_inout)
       type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: block_inout
 
-      integer, dimension(ndims) :: begin, end
       integer :: neighbor_index, neighbor_elements_size
+
+      block_inout%num_sendrecv_elements = 1
 
       allocate(block_inout%sendrecv_start_index(comm%num_neighbors))
       block_inout%sendrecv_start_index(:) = -1
@@ -59,8 +55,7 @@ contains
       neighbor_elements_size = 1
       do neighbor_index = 1, comm%num_neighbors
          if(comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
-            call get_neighbor_range(ndims, neighbor_index, block_inout%size, begin, end)
-            neighbor_elements_size = product(end - begin + 1)
+            neighbor_elements_size = comm%neighbor_elements_size(neighbor_index)
             block_inout%sendrecv_start_index(neighbor_index) = block_inout%num_sendrecv_elements
             block_inout%num_sendrecv_elements = block_inout%num_sendrecv_elements + neighbor_elements_size
          end if
@@ -70,6 +65,9 @@ contains
 
       allocate(block_inout%elements_send(block_inout%num_sendrecv_elements))
       allocate(block_inout%elements_recv(block_inout%num_sendrecv_elements))
+
+      block_inout%elements_send(:) = 10.0
+      block_inout%elements_recv(:) = 20.0
 
    end subroutine allocate_neighbor_sendrecv_array
 

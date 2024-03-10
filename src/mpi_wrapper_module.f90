@@ -44,7 +44,35 @@ contains
 
    end subroutine finalize_mpi_wrapper
 
-   !> Subroutine wrapper for a non-blocking send and recieve operation
+   subroutine isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
+
+      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
+      real, dimension(array_size), intent(inout) :: send_array
+      integer, intent(out) :: send_request_8
+
+      call MPI_ISEND(send_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
+         neighbor_sendrecv_tag, INT(comm,kind=4), send_request_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      send_request_8 = send_request_4
+
+   end subroutine isend_mpi_wrapper
+
+   subroutine irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
+
+      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
+      real, dimension(array_size), intent(inout) :: recv_array
+      integer, intent(out) :: recv_request_8
+
+      call MPI_IRECV(recv_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
+         neighbor_sendrecv_tag, INT(comm,kind=4), recv_request_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      recv_request_8 = recv_request_4
+
+   end subroutine irecv_mpi_wrapper
+
+   !> Subroutine wrapper for a non-blocking send and recieve operations
    subroutine isendrecv_mpi_wrapper(array_size, send_array, recv_array, array_start_index, count, &
       sendrecv_rank, comm, send_request_8, recv_request_8)
 
@@ -52,16 +80,9 @@ contains
       real, dimension(array_size), intent(inout) :: send_array, recv_array
       integer, intent(out) :: send_request_8, recv_request_8
 
-      call MPI_ISEND(send_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4),&
-         neighbor_sendrecv_tag, INT(comm,kind=4), send_request_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_IRECV(recv_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4),&
-         neighbor_sendrecv_tag, INT(comm,kind=4), recv_request_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      send_request_8 = send_request_4
-      recv_request_8 = recv_request_4
+      ! Declaration section remains the same
+      call isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
+      call irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
 
    end subroutine isendrecv_mpi_wrapper
 
@@ -199,28 +220,47 @@ contains
    end subroutine all_reduce_mpi_wrapper
 
    !> Write the block to the file using MPI-IO
-   subroutine write_to_file_mpi_wrapper(filename, comm, buffer, count, datatype, offset)
-      character(len=*), intent(in) :: filename
-      integer, intent(in) :: comm, count, datatype
-      real, dimension(count), intent(in) :: buffer
+   subroutine write_to_file_mpi_wrapper(solution_filename, layout_filename, comm, &
+      solution_buffer, solution_count, solution_offset, layout_buffer, layout_count, layout_offset)
 
-      integer(kind=4) :: comm_4, count_4, datatype_4
+      character(len=*), intent(in) :: solution_filename, layout_filename
+      integer, intent(in) :: comm, solution_count, layout_count
+      integer(kind=MPI_OFFSET_KIND), intent(in) :: solution_offset, layout_offset
+      real, dimension(solution_count), intent(in) :: solution_buffer
+      integer, dimension(layout_count), intent(in) :: layout_buffer
 
-      integer(kind=MPI_OFFSET_KIND), intent(in) :: offset
-      integer(kind=4) :: file_handle_4
-      integer(kind=4), dimension(MPI_STATUS_SIZE) :: status
+      integer(kind=4) :: comm_4, solution_count_4, layout_count_4
+      integer(kind=4) :: solution_file_handle_4, layout_file_handle_4
+      integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status, layout_status
 
       comm_4 = comm
-      count_4 = count
-      datatype_4 = datatype
+      solution_count_4 = solution_count
+      layout_count_4 = layout_count
 
-      call MPI_FILE_OPEN(comm_4, filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, file_handle_4, ierr_4)
+      ! Write the solution to the file
+      call MPI_FILE_OPEN(comm_4, solution_filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, &
+         solution_file_handle_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_WRITE_AT(file_handle_4, offset, buffer, count_4, datatype_4, status, ierr_4)
+      ! Blocking write
+      call MPI_FILE_WRITE_AT(solution_file_handle_4, solution_offset, solution_buffer, &
+         solution_count_4, MPI_DOUBLE_PRECISION, solution_status, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_CLOSE(file_handle_4, ierr_4)
+      call MPI_FILE_CLOSE(solution_file_handle_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Write the layout to the file
+      call MPI_FILE_OPEN(comm_4, layout_filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, &
+         layout_file_handle_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Blocking write
+      call MPI_FILE_WRITE_AT(layout_file_handle_4, layout_offset, layout_buffer, &
+         layout_count_4, MPI_LONG, layout_status, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_FILE_CLOSE(layout_file_handle_4, ierr_4)
       call check_error_mpi(ierr_4)
    end subroutine write_to_file_mpi_wrapper
 

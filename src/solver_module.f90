@@ -23,7 +23,7 @@ contains
 
       real, dimension(1) :: local_norm_array, global_norm_array
 
-      norm_scaling = 1.0/product(parameters%grid_size) ! Scale depending on the number of grid points
+      norm_scaling = 1.0/product(parameters%grid_size - 1) ! Scale depending on the number of grid points
 
       local_norm = 10e6
       global_norm = 10e9
@@ -31,7 +31,7 @@ contains
       relative_norm = 10e36
 
       converged = 0
-      max_iter = 1
+      max_iter = 1000
 
       max_tol = 1.0e-6
 
@@ -56,7 +56,7 @@ contains
 
          previous_norm = global_norm
 
-         call communicate_step(parameters)
+         call communicate_step(parameters%ndims, parameters%comm, parameters%block)
 
          iter = iter + 1
       end do
