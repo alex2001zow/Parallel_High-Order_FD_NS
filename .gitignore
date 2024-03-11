@@ -33,3 +33,6 @@
 
 # Debug files
 *.txt
+
+# Solution files
+*.dat

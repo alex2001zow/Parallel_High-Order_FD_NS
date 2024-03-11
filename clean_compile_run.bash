@@ -31,11 +31,11 @@ make debug
 
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program
-  mpirun -np $NUM_PROCESSES $EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
+  mpirun --report-bindings -np $NUM_PROCESSES $EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
 else
   # Compilation failed
   echo "Compilation failed."
 fi
 
-jupyter nbconvert --execute --inplace python/read_system_solution.ipynb
+#jupyter nbconvert --execute --inplace python/read_system_solution.ipynb
 

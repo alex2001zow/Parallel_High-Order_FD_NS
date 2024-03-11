@@ -170,7 +170,7 @@ contains
          end do
       end do
 
-      !Call DGESV to solve the linear system
+      ! Call DGESV to solve the linear system
       call DGESV(stride, 1, coefficient_matrix, stride, ipiv, stencil_coefficients, stride, info)
 
       if (info /= 0) then
