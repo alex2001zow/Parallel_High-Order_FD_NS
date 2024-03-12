@@ -156,59 +156,49 @@ contains
    end subroutine print_rank_type
 
    !> Routine to write the block data to a file
-   subroutine write_rank_type_blocks_to_file(parameters, filename_system_solution, filename_system_solution_layout)
-      character(255), intent(in) :: filename_system_solution, filename_system_solution_layout
+   subroutine write_rank_type_blocks_to_file(parameters, filename_system_solution)
+      character(255), intent(in) :: filename_system_solution
       type(rank_type), intent(in) :: parameters
 
-      integer :: offset_solution, offset_layout, count_layout
-      integer, dimension(1+parameters%ndims*3+1) :: data_layout
+      integer, dimension(parameters%ndims) :: true_block_begin, true_block_end, true_block_dims, block_dims, block_begin
+      integer :: offset_solution, elements_to_write, starting_offset, extent
+      integer :: num_blocks_type_vector, block_length, stride
 
-      real, dimension(product((parameters%block%size - parameters%comm%offset_end) - &
-         (1 - parameters%comm%offset_begin) + 1)) :: true_matrix
+      integer :: size_real
 
-      call extract_true_block(parameters%ndims, parameters%block%size, 1 - parameters%comm%offset_begin,&
-         parameters%block%size - parameters%comm%offset_end, parameters%block%matrix, true_matrix)
+      size_real = sizeof(0.0d0) ! Size of a double precision number in bytes
 
-      offset_solution = (parameters%rank) * SIZE(true_matrix) * 8
+      block_dims = parameters%block%size ! Size of the block (including ghost points)
+      block_begin = parameters%block%begin ! Start index of the block (including ghost points)
 
-      ! Layout of the data
-      data_layout(:) = [parameters%rank, parameters%comm%coords, parameters%grid_size, parameters%processor_dim, SIZE(true_matrix)]
+      true_block_begin = 1 - parameters%comm%offset_begin ! The true starting index of the block (no ghost points)
+      true_block_end = parameters%block%size - parameters%comm%offset_end ! The true ending index of the block (no ghost points)
+      true_block_dims = true_block_end - true_block_begin + 1 ! The true dimensions of the block (no ghost points)
 
-      count_layout = SIZE(data_layout)
+      num_blocks_type_vector = parameters%block%size(1)
+      block_length = product(true_block_dims(2:parameters%ndims))
+      stride = product(parameters%block%size(2:parameters%ndims))
 
-      offset_layout = (parameters%rank) * count_layout * 8
+      elements_to_write = product(true_block_dims) ! Number of elements to write to the file
+      offset_solution = (parameters%rank) * elements_to_write * size_real ! Where in the file to start writing the true block. Times 8 for double precision
+      starting_offset = product(block_begin) * size_real ! The starting offset for the true block in the full block. This is for MPI_TYPE_VECTOR.
+      extent = elements_to_write * size_real ! Where the true block ends in the full block. Times 8 for double precision
 
-      call write_to_file_mpi_wrapper(filename_system_solution, filename_system_solution_layout,&
-         parameters%comm%comm, true_matrix, SIZE(true_matrix), offset_solution, data_layout, count_layout, offset_layout)
+      call write_to_file_mpi_wrapper(parameters%ndims, & ! number of dimensions
+         filename_system_solution, & ! name of the file
+         parameters%comm%comm, & ! MPI communicator
+         num_blocks_type_vector, & ! num blocks for MPI_TYPE_VECTOR. This is the total number of blocks (including ghost points)
+         block_length, & ! block_length (no ghost points)
+         stride, & ! full block length (stride) (including ghost points)
+         starting_offset, & ! starting offset for MPI_TYPE_RESIZED
+         extent, & ! extent for the MPI_TYPE_RESIZED
+         parameters%grid_size, & ! global dims
+         true_block_dims, & ! local dims of the true block (no ghost points)
+         true_block_begin - 1, & ! start index of the true block (no ghost points). Minus 1 to convert to 0 based indexing for MPI
+         parameters%block%matrix, & ! the block matrix
+         offset_solution, & ! offset in the file to start writing the true block
+         elements_to_write) ! number of elements to write to the file
    end subroutine write_rank_type_blocks_to_file
-
-   !> Routine to extract the true block from the matrix
-   subroutine extract_true_block(ndims, dims, begin_with_offset, end_with_offset, matrix, true_matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims, begin_with_offset, end_with_offset
-      real, dimension(product(dims)), intent(in) :: matrix
-      real, dimension(product(end_with_offset - begin_with_offset + 1)), intent(out) :: true_matrix
-
-      integer :: ii, jj, matrix_global_index, true_matrix_global_index
-
-      integer, dimension(ndims) :: index
-
-      index(:) = 1
-
-      if(ndims == 2) then
-         do ii = begin_with_offset(1), end_with_offset(1)
-            do jj = begin_with_offset(2), end_with_offset(2)
-               matrix_global_index = IDX_XD(ndims, dims, [ii, jj])
-               true_matrix_global_index = IDX_XD(ndims, (end_with_offset - begin_with_offset + 1), index)
-               true_matrix(true_matrix_global_index) = matrix(matrix_global_index)
-               index(2) = index(2) + 1
-            end do
-            index(1) = index(1) + 1
-            index(2) = 1
-         end do
-      end if
-
-   end subroutine extract_true_block
 
    !> Routine to communicate with the neighbors
    !! We could edit this routine to initate the recieve first then write to the send buffer, initate send and then check if recv then write to buffer then wait for send and done.

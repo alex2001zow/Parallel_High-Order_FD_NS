@@ -28,7 +28,7 @@ IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Linker flags for linking
-LDFLAGS = -llapack -lblas
+LDFLAGS = -llapack -lblas -lm
 
 # Executable name
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
@@ -55,7 +55,7 @@ debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLA
 debug: $(EXEC)
 
 $(EXEC): $(OBJS) | $(EXEC_DIR)
-	$(FC) $(LDFLAGS) -o $@ $(OBJS)
+	$(FC) -o $@ $(OBJS) $(LDFLAGS)
 
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.f90 | $(BIN_DIR) $(INC_DIR)
 	$(FC) $(CFLAGS) $< -o $@

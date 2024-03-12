@@ -37,5 +37,5 @@ else
   echo "Compilation failed."
 fi
 
-#jupyter nbconvert --execute --inplace python/read_system_solution.ipynb
+jupyter nbconvert --execute --inplace python/read_system_solution.ipynb
 

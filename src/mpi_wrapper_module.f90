@@ -1,6 +1,7 @@
 !> This module exists to provide a wrapper around the MPI module. This is all because using the compiler flag -fdefault-integer-8 makes it harder to work with MPI.
 module mpi_wrapper_module
    use mpi
+   use utility_functions_module, only: sleeper_function
    implicit none
 
    private
@@ -220,47 +221,86 @@ contains
    end subroutine all_reduce_mpi_wrapper
 
    !> Write the block to the file using MPI-IO
-   subroutine write_to_file_mpi_wrapper(solution_filename, layout_filename, comm, &
-      solution_buffer, solution_count, solution_offset, layout_buffer, layout_count, layout_offset)
+   subroutine write_to_file_mpi_wrapper(ndims, solution_filename, comm, num_blocks, block_length, block_stride, &
+      starting_offset, extent, global_dims, block_dims, block_begin, solution_buffer, solution_offset, solution_count)
 
-      character(len=*), intent(in) :: solution_filename, layout_filename
-      integer, intent(in) :: comm, solution_count, layout_count
-      integer(kind=MPI_OFFSET_KIND), intent(in) :: solution_offset, layout_offset
+      integer, intent(in) :: ndims, num_blocks, block_length, block_stride, starting_offset, extent
+      character(len=*), intent(in) :: solution_filename
+      integer, intent(in) :: comm, solution_count
+      integer, dimension(ndims), intent(in) :: global_dims, block_dims, block_begin
       real, dimension(solution_count), intent(in) :: solution_buffer
-      integer, dimension(layout_count), intent(in) :: layout_buffer
+      integer(kind=MPI_OFFSET_KIND), intent(in) :: solution_offset
 
-      integer(kind=4) :: comm_4, solution_count_4, layout_count_4
-      integer(kind=4) :: solution_file_handle_4, layout_file_handle_4
-      integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status, layout_status
+
+      integer(kind=4) :: ndims_4, num_blocks_4, block_length_4, block_stride_4
+      integer(kind=MPI_ADDRESS_KIND) :: starting_offset_4, extent_4
+      integer(kind=4) :: comm_4, solution_count_4
+      integer(kind=4), dimension(ndims) :: global_dims_4, block_dims_4, block_begin_4
+      integer(kind=4) :: block_type, reshaped_block_type, file_type
+      integer(kind=4) :: solution_fh_4
+      integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status
+
+      ndims_4 = ndims
+      num_blocks_4 = num_blocks
+      block_length_4 = block_length
+      block_stride_4 = block_stride
+      starting_offset_4 = starting_offset
+      extent_4 = extent
 
       comm_4 = comm
-      solution_count_4 = solution_count
-      layout_count_4 = layout_count
+      solution_count_4 = 1
+
+      global_dims_4 = global_dims
+      block_dims_4 = block_dims
+      block_begin_4 = block_begin
+
+      ! Specify the block setup as vector with stride
+      call MPI_TYPE_VECTOR(num_blocks_4, block_length_4, block_stride_4, MPI_DOUBLE_PRECISION, block_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(block_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Get extent
+      !call MPI_TYPE_GET_EXTENT(block_type, starting_offset_4, extent_4, ierr_4)
+
+      ! Reshape the block to start and end at the correct places
+      call MPI_TYPE_CREATE_RESIZED(block_type, starting_offset_4, extent_4, reshaped_block_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(reshaped_block_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Specify the block dimensions in the global space.
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, global_dims_4, block_dims_4, block_begin_4, &
+         MPI_ORDER_C, MPI_DOUBLE_PRECISION, file_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(file_type, ierr_4)
+      call check_error_mpi(ierr_4)
 
       ! Write the solution to the file
       call MPI_FILE_OPEN(comm_4, solution_filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, &
-         solution_file_handle_4, ierr_4)
+         solution_fh_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      ! Blocking write
-      call MPI_FILE_WRITE_AT(solution_file_handle_4, solution_offset, solution_buffer, &
-         solution_count_4, MPI_DOUBLE_PRECISION, solution_status, ierr_4)
+      call MPI_FILE_SET_VIEW(solution_fh_4, solution_offset, MPI_DOUBLE_PRECISION, file_type, "native", MPI_INFO_NULL, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_CLOSE(solution_file_handle_4, ierr_4)
+      call MPI_FILE_WRITE_ALL(solution_fh_4, solution_buffer, solution_count_4, reshaped_block_type, solution_status, ierr_4)
       call check_error_mpi(ierr_4)
 
-      ! Write the layout to the file
-      call MPI_FILE_OPEN(comm_4, layout_filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, &
-         layout_file_handle_4, ierr_4)
+      ! Clean up
+      call MPI_FILE_CLOSE(solution_fh_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      ! Blocking write
-      call MPI_FILE_WRITE_AT(layout_file_handle_4, layout_offset, layout_buffer, &
-         layout_count_4, MPI_LONG, layout_status, ierr_4)
+      call MPI_TYPE_FREE(reshaped_block_type, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_CLOSE(layout_file_handle_4, ierr_4)
+      call MPI_TYPE_FREE(block_type, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_FREE(file_type, ierr_4)
       call check_error_mpi(ierr_4)
    end subroutine write_to_file_mpi_wrapper
 

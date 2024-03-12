@@ -25,8 +25,8 @@ contains
             index = [ii,jj]
             block_index = begin_block + index - 1
             local_index = IDX_XD(ndims, dims, index)
-            !buffer(local_index) = rank!IDX_XD(ndims, global_dims, block_index)
-            buffer(local_index) = u_analytical_poisson_2d(ndims, global_domain_begin, block_index, dx)
+            buffer(local_index) = rank!IDX_XD(ndims, global_dims, block_index)
+            !buffer(local_index) = u_analytical_poisson_2d(ndims, global_domain_begin, block_index, dx)
          end do
       end do
 
