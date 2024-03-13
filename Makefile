@@ -16,10 +16,10 @@ EXEC_DIR = exec
 # Debug flags
 DEBUGFLAGS = -g -fbacktrace -ffpe-trap=zero,overflow,underflow,invalid -fbounds-check -O0
 # Release flags
-RELEASEFLAGS = -O3 -flto
+RELEASEFLAGS = -O3 -flto -fopt-info-vec-missed -fopt-info-loop-all
 
 # OpenACC flags
-OPENACCFLAGS = -fopenacc
+OPENMPFLAGS = -fopenmp
 
 # Other flags
 OTHERFLAGS = -c
@@ -28,7 +28,7 @@ IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Linker flags for linking
-LDFLAGS = -llapack -lblas -lm
+LDFLAGS = -llapack -lblas -lm $(OPENMPFLAGS)
 
 # Executable name
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
@@ -48,10 +48,10 @@ default:
 	@echo "To compile the program type make debug|release"
 
 # Combined compiler flags for compilation
-release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENACCFLAGS) $(MFLAGS)
+release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS)
 release: $(EXEC)
 
-debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(OPENACCFLAGS) $(MFLAGS)
+debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS)
 debug: $(EXEC)
 
 $(EXEC): $(OBJS) | $(EXEC_DIR)

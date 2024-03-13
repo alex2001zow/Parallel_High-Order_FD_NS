@@ -1,4 +1,6 @@
 module rank_module
+   use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
+   use functions_module, only: FunctionPair, set_function_pointers
    use mpi, only : MPI_REQUEST_NULL, MPI_DOUBLE_PRECISION, MPI_INT
    use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, &
       get_neighbor_indices
@@ -9,7 +11,6 @@ module rank_module
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, &
       write_to_file_mpi_wrapper
-   use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
    use utility_functions_module, only : IDX_XD, sleeper_function
    implicit none
 
@@ -21,27 +22,25 @@ module rank_module
       integer, allocatable :: grid_size(:), processor_dim(:)
       real, allocatable :: domain_begin(:), domain_end(:)
 
+      type(FunctionPair) :: funcs
       type(comm_type) :: comm
       type(FDstencil_type) :: FDstencil
       type(block_type) :: block
 
    end type rank_type
 
-   public :: rank_type, create_rank_type, deallocate_rank_type, print_rank_type
+   public :: rank_type
+   public :: create_rank_type, deallocate_rank_type
    public :: communicate_step
-   public :: write_rank_type_blocks_to_file
-
+   public :: print_rank_type, write_rank_type_blocks_to_file
 
 contains
 
    !> Routine to create the rank_type
-   subroutine create_rank_type(rank, world_size, parameters)
-      integer, intent(in) :: rank, world_size
-      type(rank_type), intent(out) :: parameters
-
-      character(255) :: dim_input_arg, temp_arg
-
-      integer :: ii
+   subroutine create_rank_type(ndims, grid_size, processor_dim, func_enum, rank, world_size, parameters)
+      integer, intent(in) :: ndims, rank, world_size, func_enum
+      integer, dimension(ndims), intent(in) :: grid_size, processor_dim
+      type(rank_type), intent(inout) :: parameters
 
       integer, parameter :: num_derivatives = 2
       integer, dimension(2*num_derivatives), parameter :: derivatives = [1,3,3,1]
@@ -51,32 +50,20 @@ contains
       integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
       real, dimension(2) :: dx
 
-      call get_command_argument(1, dim_input_arg)
-      read(dim_input_arg,*) parameters%ndims
-
+      parameters%ndims = ndims
       parameters%rank = rank
       parameters%world_size = world_size
 
       call allocate_rank_type(parameters)
+      parameters%grid_size = grid_size
+      parameters%processor_dim = processor_dim
 
-      do ii = 1, parameters%ndims
-         call get_command_argument(ii+1, temp_arg)
-         read(temp_arg,*) parameters%grid_size(ii)
+      parameters%domain_begin = 0.0
+      parameters%domain_end = 1.0
 
-         call get_command_argument(ii+1+parameters%ndims, temp_arg)
-         read(temp_arg,*) parameters%processor_dim(ii)
+      dx = abs((parameters%domain_end - parameters%domain_begin)) / (parameters%grid_size-1)
 
-         ! We have make sure that the inputs are properly divisible
-         if(mod(parameters%grid_size(ii), parameters%processor_dim(ii)) /= 0) then
-            print *, "Grid size is not divisible by the number of processors in dimension ", ii
-            stop
-         end if
-
-         parameters%domain_begin(ii) = 0.0
-         parameters%domain_end(ii) = 1.0
-
-         dx(ii) = abs((parameters%domain_end(ii) - parameters%domain_begin(ii))) / (parameters%grid_size(ii)-1)
-      end do
+      call set_function_pointers(func_enum, parameters%funcs)
 
       call create_cart_comm_type(parameters%ndims, parameters%grid_size, parameters%processor_dim, parameters%rank, parameters%comm)
 
@@ -160,9 +147,9 @@ contains
       character(255), intent(in) :: filename_system_solution
       type(rank_type), intent(in) :: parameters
 
-      integer, dimension(parameters%ndims) :: true_block_begin, true_block_end, true_block_dims, block_dims, block_begin
+      integer, dimension(parameters%ndims) :: block_dims, block_begin
       integer :: offset_solution, elements_to_write, starting_offset, extent
-      integer :: num_blocks_type_vector, block_length, stride
+      integer :: num_blocks_type_vector, whole_block_count
 
       integer :: size_real
 
@@ -171,15 +158,10 @@ contains
       block_dims = parameters%block%size ! Size of the block (including ghost points)
       block_begin = parameters%block%begin ! Start index of the block (including ghost points)
 
-      true_block_begin = 1 - parameters%comm%offset_begin ! The true starting index of the block (no ghost points)
-      true_block_end = parameters%block%size - parameters%comm%offset_end ! The true ending index of the block (no ghost points)
-      true_block_dims = true_block_end - true_block_begin + 1 ! The true dimensions of the block (no ghost points)
+      num_blocks_type_vector = 1
+      whole_block_count = product(block_dims)
 
-      num_blocks_type_vector = parameters%block%size(1)
-      block_length = product(true_block_dims(2:parameters%ndims))
-      stride = product(parameters%block%size(2:parameters%ndims))
-
-      elements_to_write = product(true_block_dims) ! Number of elements to write to the file
+      elements_to_write = whole_block_count ! Number of elements to write to the file
       offset_solution = (parameters%rank) * elements_to_write * size_real ! Where in the file to start writing the true block. Times 8 for double precision
       starting_offset = product(block_begin) * size_real ! The starting offset for the true block in the full block. This is for MPI_TYPE_VECTOR.
       extent = elements_to_write * size_real ! Where the true block ends in the full block. Times 8 for double precision
@@ -188,24 +170,25 @@ contains
          filename_system_solution, & ! name of the file
          parameters%comm%comm, & ! MPI communicator
          num_blocks_type_vector, & ! num blocks for MPI_TYPE_VECTOR. This is the total number of blocks (including ghost points)
-         block_length, & ! block_length (no ghost points)
-         stride, & ! full block length (stride) (including ghost points)
-         starting_offset, & ! starting offset for MPI_TYPE_RESIZED
-         extent, & ! extent for the MPI_TYPE_RESIZED
+         whole_block_count, & ! block_length (no ghost points)
+         whole_block_count, & ! full block length (stride) (including ghost points)
+         0, & ! starting offset for MPI_TYPE_RESIZED. Currently found using MPI_GET_EXTENT for just the whole block.
+         0, & ! extent for the MPI_TYPE_RESIZED. Currently found using MPI_GET_EXTENT for just the whole block.
          parameters%grid_size, & ! global dims
-         true_block_dims, & ! local dims of the true block (no ghost points)
-         true_block_begin - 1, & ! start index of the true block (no ghost points). Minus 1 to convert to 0 based indexing for MPI
+         block_dims, & ! local dims of the true block (no ghost points)
+         block_begin - 1, & ! start index of the true block (no ghost points). Minus 1 to convert to 0 based indexing for MPI
          parameters%block%matrix, & ! the block matrix
-         offset_solution, & ! offset in the file to start writing the true block
+         0, & ! offset in the file to start writing the true block
          elements_to_write) ! number of elements to write to the file
    end subroutine write_rank_type_blocks_to_file
 
    !> Routine to communicate with the neighbors
    !! We could edit this routine to initate the recieve first then write to the send buffer, initate send and then check if recv then write to buffer then wait for send and done.
-   subroutine communicate_step(ndims, comm, block)
+   subroutine communicate_step(ndims, comm, block, matrix)
       integer, intent(in) :: ndims
       type(comm_type), intent(inout) :: comm
       type(block_type), intent(inout) :: block
+      real, dimension(product(block%size)), intent(inout) :: matrix
 
       integer, dimension(ndims) :: begin, end
       integer :: neighbor_index
@@ -214,7 +197,7 @@ contains
       do neighbor_index = 1, comm%num_neighbors
          if(comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
             call get_neighbor_indices(ndims, neighbor_index, comm%neighbor_send_indices, begin, end)
-            call array2buffer(ndims, block%size, begin, end, block%matrix, block%num_elements, block%elements_send, &
+            call array2buffer(ndims, block%size, begin, end, matrix, block%num_elements, block%elements_send, &
                block%num_sendrecv_elements, block%sendrecv_start_index(neighbor_index))
          end if
       end do
@@ -230,7 +213,7 @@ contains
       do neighbor_index = 1, comm%num_neighbors
          if(comm%neighbors(neighbor_index) > neighbor_non_existant_rank) then
             call get_neighbor_indices(ndims,neighbor_index, comm%neighbor_recv_indices, begin, end)
-            call buffer2array(ndims, block%size, begin, end, block%matrix, block%num_elements, block%elements_recv, &
+            call buffer2array(ndims, block%size, begin, end, matrix, block%num_elements, block%elements_recv, &
                block%num_sendrecv_elements, block%sendrecv_start_index(neighbor_index))
          end if
       end do

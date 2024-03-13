@@ -2,7 +2,7 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, print_matrix, sleeper_function, find_abs_diff_matrices
+   public :: IDX_XD, print_matrix, read_input_from_command_line, find_abs_diff_matrices, swap_pointers, sleeper_function
 
 contains
 
@@ -46,6 +46,44 @@ contains
       end if
 
    end subroutine print_matrix
+
+   !> Routine to read input from the command line
+   subroutine read_input_from_command_line(ndims, grid_size, processor_dim)
+      integer, intent(out) :: ndims
+      integer, dimension(:), allocatable, intent(out) :: grid_size, processor_dim
+
+      character(255) :: temp_arg
+      integer :: ii
+
+      call get_command_argument(1, temp_arg)
+      read(temp_arg,"(I5)") ndims
+
+      allocate(grid_size(ndims))
+      allocate(processor_dim(ndims))
+
+      do ii = 1, ndims
+         call get_command_argument(ii + 1, temp_arg)
+         read(temp_arg,"(I5)") grid_size(ii)
+
+         call get_command_argument(ii + (ndims + 1), temp_arg)
+         read(temp_arg,"(I5)") processor_dim(ii)
+
+         ! We have make sure that the inputs are properly divisible
+         if(mod(grid_size(ii), processor_dim(ii)) /= 0) then
+            print *, "Grid size is not divisible by the number of processors in dimension ", ii
+            stop
+         end if
+      end do
+   end subroutine read_input_from_command_line
+
+   subroutine swap_pointers(ptr1, ptr2)
+      real, dimension(:), pointer, intent(inout) :: ptr1, ptr2
+      real, dimension(:), pointer :: temp_ptr
+
+      temp_ptr => ptr1
+      ptr1 => ptr2
+      ptr2 => temp_ptr
+   end subroutine swap_pointers
 
    !> Routine to print the absolute difference between two matrices.
    subroutine find_abs_diff_matrices(ndims, dims, matrix1, matrix2)

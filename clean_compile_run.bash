@@ -7,7 +7,7 @@ EXEC="exec/parallel_solver_mpi.out"
 NUM_DIM=2
 
 # Number of processes
-NUM_PROCESSES=4
+NUM_PROCESSES=1
 
 # Grid size
 M_DIM=8
@@ -15,8 +15,8 @@ N_DIM=$M_DIM
 K_DIM=$M_DIM
 
 # Number of processors in each dimension
-M_PROCESSORS=2
-N_PROCESSORS=2
+M_PROCESSORS=1
+N_PROCESSORS=1
 K_PROCESSORS=1
 
 # Clean output
@@ -27,11 +27,11 @@ rm -f python/output/*
 make clean
 
 # Compile the program
-make debug
+make release
 
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program
-  mpirun --report-bindings -np $NUM_PROCESSES $EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
+  mpirun --report-bindings --bind-to socket -np $NUM_PROCESSES $EXEC $NUM_DIM $M_DIM $N_DIM $M_PROCESSORS $N_PROCESSORS
 else
   # Compilation failed
   echo "Compilation failed."

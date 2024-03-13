@@ -262,7 +262,7 @@ contains
       call check_error_mpi(ierr_4)
 
       ! Get extent
-      !call MPI_TYPE_GET_EXTENT(block_type, starting_offset_4, extent_4, ierr_4)
+      call MPI_TYPE_GET_EXTENT(block_type, starting_offset_4, extent_4, ierr_4)
 
       ! Reshape the block to start and end at the correct places
       call MPI_TYPE_CREATE_RESIZED(block_type, starting_offset_4, extent_4, reshaped_block_type, ierr_4)
@@ -273,7 +273,7 @@ contains
 
       ! Specify the block dimensions in the global space.
       call MPI_TYPE_CREATE_SUBARRAY(ndims_4, global_dims_4, block_dims_4, block_begin_4, &
-         MPI_ORDER_C, MPI_DOUBLE_PRECISION, file_type, ierr_4)
+         MPI_ORDER_C, MPI_DOUBLE_PRECISION, file_type, ierr_4) ! The order is C because the matrix has been indexed using a global index with row major order. Should not effect performance.
       call check_error_mpi(ierr_4)
 
       call MPI_TYPE_COMMIT(file_type, ierr_4)

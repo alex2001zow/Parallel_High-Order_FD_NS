@@ -10,7 +10,8 @@ module block_module
    type block_type
       integer :: num_elements, num_sendrecv_elements
       integer, allocatable :: size(:), begin(:), end(:)
-      real, allocatable :: matrix(:), elements_send(:), elements_recv(:)
+      real, dimension(:), allocatable :: matrix, f_array, temp_array
+      real, allocatable :: elements_send(:), elements_recv(:)
       integer, allocatable :: sendrecv_start_index(:)
    end type block_type
 
@@ -78,9 +79,12 @@ contains
       if(allocated(block_input%size)) deallocate(block_input%size)
       if(allocated(block_input%begin)) deallocate(block_input%begin)
       if(allocated(block_input%end)) deallocate(block_input%end)
+
       if(allocated(block_input%matrix)) deallocate(block_input%matrix)
       if(allocated(block_input%elements_send)) deallocate(block_input%elements_send)
       if(allocated(block_input%elements_recv)) deallocate(block_input%elements_recv)
+      if(allocated(block_input%f_array)) deallocate(block_input%f_array)
+      if(allocated(block_input%temp_array)) deallocate(block_input%temp_array)
 
       if(allocated(block_input%sendrecv_start_index)) deallocate(block_input%sendrecv_start_index)
 
