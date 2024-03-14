@@ -6,20 +6,20 @@ private
 
 enum, bind(C)
    enumerator :: DefaultModel = 0
-   enumerator :: Poisson2D = 1
+   enumerator :: Poisson = 1
    enumerator :: AnotherModel = 2
    ! Add more models as needed
 end enum
 
 abstract interface
-   function FunctionInterface(ndims, global_domain_begin, global_indices, dx) result (func_val)
+   subroutine FunctionInterface(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
-      real, intent(in) :: global_domain_begin(ndims), dx(ndims)
-      integer, intent(in) :: global_indices(ndims)
+      real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
+      integer, dimension(ndims), intent(in) :: domain_size, domain_indices
 
-      real :: func_val
+      real, intent(inout) :: func_val
 
-   end function FunctionInterface
+   end subroutine FunctionInterface
 end interface
 
 type :: FunctionPtrType
@@ -33,7 +33,7 @@ type :: FunctionPair
    type(FunctionPtrType) :: analytical_func
 end type FunctionPair
 
-public :: Poisson2D
+public :: Poisson
 public :: FunctionPtrType, FunctionPair, set_function_pointers
 
 contains
@@ -50,70 +50,71 @@ subroutine set_function_pointers(enum_val, funcPair)
 
    ! Check for the matching name and set the function pointers
    select case(enum_val)
-    case(Poisson2D)
-      funcPair%initial_condition_func%func => u_analytical_poisson_2d
-      funcPair%boundary_condition_func%func => u_analytical_poisson_2d
-      funcPair%rhs_func%func => f_analytical_poisson_2d
-      funcPair%analytical_func%func => u_analytical_poisson_2d
+    case(Poisson)
+      funcPair%initial_condition_func%func => initial_poisson
+      funcPair%boundary_condition_func%func => boundary_poisson
+      funcPair%rhs_func%func => f_analytical_poisson
+      funcPair%analytical_func%func => u_analytical_poisson
     case default
       write(*,*) 'No matching function pair for the given name.'
    end select
 end subroutine set_function_pointers
 
-function initial_poisson_2d(ndims, global_domain_begin, global_indices, dx) result (func_val)
+subroutine initial_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
    integer, intent(in) :: ndims
-   real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   integer, dimension(ndims), intent(in) :: global_indices
+   real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
+   integer, dimension(ndims), intent(in) :: domain_size, domain_indices
 
-   real, dimension(ndims) :: point
-   real :: func_val
+   real, intent(inout) :: func_val
 
-   point = global_domain_begin + (global_indices(:) - 1) * dx(:)
+   func_val = 20.0
 
-   func_val = 1.0
+end subroutine initial_poisson
 
-end function initial_poisson_2d
-
-function boundary_poisson_2d(ndims, global_domain_begin, global_indices, dx) result (func_val)
+subroutine boundary_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
    integer, intent(in) :: ndims
-   real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   integer, dimension(ndims), intent(in) :: global_indices
+   real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
+   integer, dimension(ndims), intent(in) :: domain_size, domain_indices
 
-   real, dimension(ndims) :: point
-   real :: func_val
+   real, intent(inout) :: func_val
 
-   point = global_domain_begin + (global_indices(:) - 1) * dx(:)
+   integer :: i
+   logical :: at_boundary
+   at_boundary = .false.
+
+   do i = 1, ndims
+      if (domain_indices(i) == 1 .or. domain_indices(i) == domain_size(i)) then
+         at_boundary = .true.
+         exit
+      end if
+   end do
+
+   if (at_boundary) then
+      call u_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   end if
+
+end subroutine boundary_poisson
+
+subroutine u_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   integer, intent(in) :: ndims
+   real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
+   integer, dimension(ndims), intent(in) :: domain_size, domain_indices
+
+   real, intent(inout) :: func_val
 
    func_val = product(sin(pi*point))
 
-end function boundary_poisson_2d
+end subroutine u_analytical_poisson
 
-function u_analytical_poisson_2d(ndims, global_domain_begin, global_indices, dx) result (func_val)
+subroutine f_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
    integer, intent(in) :: ndims
-   real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   integer, dimension(ndims), intent(in) :: global_indices
+   real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
+   integer, dimension(ndims), intent(in) :: domain_size, domain_indices
 
-   real, dimension(ndims) :: point
-   real :: func_val
+   real, intent(inout) :: func_val
 
-   point = global_domain_begin + (global_indices(:) - 1) * dx(:)
+   func_val = -ndims*pi*pi*product(sin(pi*point))
 
-   func_val = product(sin(pi*point))
-
-end function u_analytical_poisson_2d
-
-function f_analytical_poisson_2d(ndims, global_domain_begin, global_indices, dx) result (func_val)
-   integer, intent(in) :: ndims
-   real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   integer, dimension(ndims), intent(in) :: global_indices
-
-   real, dimension(ndims) ::  point
-   real :: func_val
-
-   point = global_domain_begin + (global_indices(:) - 1) * dx(:)
-
-   func_val = -2.0*pi*pi*product(sin(pi*point))
-
-end function f_analytical_poisson_2d
+end subroutine f_analytical_poisson
 
 end module functions_module

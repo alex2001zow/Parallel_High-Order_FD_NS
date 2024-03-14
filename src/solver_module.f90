@@ -46,8 +46,8 @@ contains
          ! Copy the matrix to the f_array (just to create a matrix of the same size as the block to read from)
          parameters%block%f_array = parameters%block%temp_array
          ! Write the function to the f_array
-         call write_function_to_block(parameters%ndims, parameters%domain_begin, &
-            parameters%block%begin, parameters%block%size, parameters%block%f_array, &
+         call write_function_to_block(parameters%ndims, parameters%domain_begin, parameters%domain_end, &
+            parameters%grid_size, parameters%block%begin, parameters%block%size, parameters%block%f_array, &
             parameters%FDstencil%dx, parameters%funcs%rhs_func)
        case default
          ! Do nothing
@@ -57,15 +57,15 @@ contains
       ptr_matrix => parameters%block%matrix
       ptr_temp_array => parameters%block%temp_array
 
-      norm_scaling = 1.0/product(parameters%grid_size - 1) ! Scale depending on the number of grid points
+      norm_scaling = 1.0/product(parameters%grid_size) ! Scale depending on the number of grid points
 
-      local_norm = 10e6
-      global_norm = 10e9
-      previous_norm = 10e18
-      relative_norm = 10e36
+      local_norm = 10e3
+      global_norm = 10e6
+      previous_norm = 10e9
+      relative_norm = 10e18
 
       converged = 0
-      max_iter = 10000
+      max_iter = 100000
 
       max_tol = 1.0e-6
 
@@ -75,8 +75,9 @@ contains
          ! Perhaps we should make a seperate function depending on the solver. So we do not have to check the solver type in the loop
          select case(enum_solver)
           case(GSSolver)
-            local_norm = Gauss_Seidel_iteration(parameters%ndims, parameters%FDstencil,parameters%block%size, &
-               parameters%block%begin, parameters%block%matrix, parameters%funcs%rhs_func, parameters%domain_begin)
+            local_norm = Gauss_Seidel_iteration(parameters%ndims, parameters%FDstencil, parameters%block%size, &
+               parameters%block%begin, parameters%block%matrix, parameters%funcs%rhs_func, parameters%domain_begin, &
+               parameters%domain_end, parameters%grid_size)
           case(JSolver)
             ! We set the matrix as the temp array to make sure we have the newest data in the matrix and not the temp_array
             local_norm = Jacobi_iteration(parameters%ndims, parameters%FDstencil,parameters%block%size, &
@@ -89,7 +90,7 @@ contains
          local_norm_array(1) = local_norm
 
          call all_reduce_mpi_wrapper(local_norm_array, global_norm_array, 1, &
-            INT(MPI_DOUBLE_PRECISION,kind=8), INT(MPI_SUM,kind=8), parameters%comm%comm)
+            int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), parameters%comm%comm)
 
          global_norm = global_norm_array(1) * norm_scaling
          global_norm = sqrt(global_norm) ! Not sure if needed
@@ -157,15 +158,17 @@ contains
    end function Jacobi_iteration
 
    !> Gauss_Seidel_iteration with 2-norm
-   function Gauss_Seidel_iteration(ndims, FDstencil, dims, begin, matrix, f_func, global_domain_begin) result(norm)
+   function Gauss_Seidel_iteration(ndims, FDstencil, dims, begin, matrix, f_func, &
+      global_domain_begin, global_domain_end, global_domain_size) result(norm)
       integer, intent(in) :: ndims
-      integer, dimension(ndims) :: dims, begin
+      integer, dimension(ndims) :: dims, begin, global_domain_size
       real, dimension(product(dims)), intent(inout) :: matrix
       type (FDstencil_type), intent(in) :: FDstencil
       type(FunctionPtrType), intent(in) :: f_func
-      real, dimension(ndims) :: global_domain_begin
+      real, dimension(ndims) :: global_domain_begin, global_domain_end
 
       integer, dimension(ndims) :: index, block_index
+      real, dimension(ndims) :: point
       integer :: ii, jj, local_index
 
       real :: stencil_val, f_val, new_val, norm
@@ -181,8 +184,11 @@ contains
             block_index = begin + index - 1
             local_index = IDX_XD(ndims, dims, index)
 
+            point = global_domain_begin + (block_index - 1) * FDstencil%dx
+
             stencil_val= apply_FDstencil(ndims, FDstencil, dims, matrix, index)
-            f_val = f_func%func(ndims, global_domain_begin, block_index, FDstencil%dx)
+            call f_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
+               block_index, FDstencil%dx, point, f_val)
 
             new_val = -stencil_val + f_val
             new_val = new_val / FDstencil%center_coefficient

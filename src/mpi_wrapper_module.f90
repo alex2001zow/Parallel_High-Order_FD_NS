@@ -51,8 +51,8 @@ contains
       real, dimension(array_size), intent(inout) :: send_array
       integer, intent(out) :: send_request_8
 
-      call MPI_ISEND(send_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
-         neighbor_sendrecv_tag, INT(comm,kind=4), send_request_4, ierr_4)
+      call MPI_ISEND(send_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
+         neighbor_sendrecv_tag, int(comm,kind=4), send_request_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       send_request_8 = send_request_4
@@ -65,8 +65,8 @@ contains
       real, dimension(array_size), intent(inout) :: recv_array
       integer, intent(out) :: recv_request_8
 
-      call MPI_IRECV(recv_array(array_start_index), INT(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
-         neighbor_sendrecv_tag, INT(comm,kind=4), recv_request_4, ierr_4)
+      call MPI_IRECV(recv_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, int(sendrecv_rank,kind=4), &
+         neighbor_sendrecv_tag, int(comm,kind=4), recv_request_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       recv_request_8 = recv_request_4
@@ -96,7 +96,7 @@ contains
 
       requests_4 = requests_8
 
-      call MPI_WAITALL(INT(num_requests_8,kind=4), requests_4, MPI_STATUSES_IGNORE, ierr_4)
+      call MPI_WAITALL(int(num_requests_8,kind=4), requests_4, MPI_STATUSES_IGNORE, ierr_4)
       call check_error_mpi(ierr_4)
 
       requests_8 = requests_4
@@ -118,7 +118,7 @@ contains
          periods_4(ii) = .FALSE.
       end do
 
-      call MPI_CART_CREATE(INT(MPI_COMM_WORLD,kind=4), INT(ndims_8,kind=4), INT(dims_8,kind=4),&
+      call MPI_CART_CREATE(INT(MPI_COMM_WORLD,kind=4), int(ndims_8,kind=4), int(dims_8,kind=4),&
          periods_4, reorder_4, comm_cart_4, ierr_4)
       call check_error_mpi(ierr_4)
 
@@ -133,7 +133,7 @@ contains
 
       integer, intent(out) :: coords_8(ndims_8)
 
-      call MPI_CART_COORDS(INT(comm_8,kind=4), INT(rank_8,kind=4), INT(ndims_8,kind=4), coords_4, ierr_4)
+      call MPI_CART_COORDS(int(comm_8,kind=4), int(rank_8,kind=4), int(ndims_8,kind=4), coords_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       coords_8 = coords_4
@@ -147,7 +147,7 @@ contains
       integer, intent(out) :: rank_of_coords_8, error_8
 
       error_4 = 0
-      call MPI_CART_RANK(INT(comm_8,kind=4), INT(indices_8,kind=4), rank_of_coords_4, ierr_4)
+      call MPI_CART_RANK(int(comm_8,kind=4), int(indices_8,kind=4), rank_of_coords_4, ierr_4)
       !call check_error_mpi(ierr_4) ! We do not want to check for errors here because we want to return an error code to the caller
       if(ierr_4 /= MPI_SUCCESS) then
          error_4 = 1
@@ -175,12 +175,12 @@ contains
       ! Check if the original error handler has already been saved
       if (original_errhandler_4 == MPI_ERRHANDLER_NULL) then
          ! Get the current error handler for comm
-         call MPI_COMM_GET_ERRHANDLER(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
+         call MPI_COMM_GET_ERRHANDLER(int(comm_8,kind=4), original_errhandler_4, ierr_4)
          call check_error_mpi(ierr_4)
       endif
 
       ! Set the error handler for comm to return errors
-      call MPI_COMM_SET_ERRHANDLER(INT(comm_8,kind=4), MPI_ERRORS_RETURN, ierr_4)
+      call MPI_COMM_SET_ERRHANDLER(int(comm_8,kind=4), MPI_ERRORS_RETURN, ierr_4)
       call check_error_mpi(ierr_4)
 
    end subroutine change_MPI_COMM_errhandler_mpi_wrapper
@@ -192,7 +192,7 @@ contains
       ! Check if the original error handler was saved
       if (original_errhandler_4 /= MPI_ERRHANDLER_NULL) then
          ! Restore the original error handler for comm_8
-         call MPI_COMM_SET_ERRHANDLER(INT(comm_8,kind=4), original_errhandler_4, ierr_4)
+         call MPI_COMM_SET_ERRHANDLER(int(comm_8,kind=4), original_errhandler_4, ierr_4)
          call check_error_mpi(ierr_4)
 
          ! Reset the original_errhandler variable

@@ -229,11 +229,6 @@ contains
 
       do ii = -FDstencil_type_input%alphas(1), FDstencil_type_input%betas(1)
          do jj = -FDstencil_type_input%alphas(2), FDstencil_type_input%betas(2)
-            ! Skip the center coefficient. This method of using if-statements is slow! We should just minus the center coefficient at the end. Might cause rounding errors not sure. It is faster though.
-            if(ii == 0 .and. jj == 0) then
-               index_stencil(2) = index_stencil(2) + 1
-               cycle
-            end if
             stencil_index = IDX_XD(ndims, FDstencil_type_input%stencil_sizes, index_stencil)
             block_index = IDX_XD(ndims, dims, index + [ii,jj])
 
@@ -247,6 +242,9 @@ contains
          index_stencil(1) = index_stencil(1) + 1
          index_stencil(2) = 1
       end do
+
+      ! Subtract the center coefficient
+      val = val - FDstencil_type_input%center_coefficient * matrix(IDX_XD(ndims, dims, index))
 
    end function apply_FDstencil
 

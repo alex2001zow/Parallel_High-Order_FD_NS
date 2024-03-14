@@ -76,7 +76,7 @@ contains
 
    end subroutine get_cart_coords
 
-   !> Find the Moore neighborhood of a rank in a cartesian communicator in 2D and 3D. Want to make it N-D but it is complicated.
+   !> Find the Moore neighborhood of a rank in a cartesian communicator. We should check the order column vs row. Not sure it is correct but it seems to work.
    subroutine get_cart_neighbors(ndims, coords, cart_comm, neighbors, offset_begin, offset_end)
       integer, intent(in) :: ndims, cart_comm
       integer, dimension(ndims), intent(in) :: coords
@@ -101,7 +101,7 @@ contains
          do ii = -1,1,1
             do jj = -1,1,1
                current_index = [ii, jj]
-               indices = coords + current_index ! This is because of FORTRAN's column-major order!
+               indices = coords + current_index
 
                call cart_rank_mpi_wrapper(cart_comm, ndims, indices, rank_of_coords, error)
 

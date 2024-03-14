@@ -1,7 +1,7 @@
 module block_module
    use constants_module, only: neighbor_non_existant_rank
    use comm_module, only: comm_type
-   use utility_functions_module, only: IDX_XD, sleeper_function
+   use utility_functions_module, only: IDX_XD, IDX_XD_INV, sleeper_function
    implicit none
 
    private
@@ -96,7 +96,8 @@ contains
       integer, intent(in) :: ndims, iounit
       type(block_type), intent(in) :: block_input
 
-      integer :: ii, jj, global_index
+      integer :: ii, jj, global_index, d
+      integer, dimension(ndims) :: indices
 
       ! Newlines for readability
       write(iounit, *)
@@ -123,15 +124,20 @@ contains
          write(iounit, '(A, *(F10.3))') "elements_send: ", block_input%elements_send(:)
          write(iounit, '(A, *(F10.3))') "elements_recv: ", block_input%elements_recv(:)
 
-         write(iounit, *) "matrix:"
-         do ii = 1, block_input%size(1)
-            do jj = 1, block_input%size(2)
-               global_index = IDX_XD(ndims, block_input%size, [ii, jj])
-               write(iounit, '(F10.3)', advance='no') block_input%matrix(global_index)
-            end do
-            write(iounit, *)
-         end do
       endif
+
+      do global_index = 1, product(block_input%size)
+         indices = IDX_XD_INV(ndims, block_input%size, global_index)
+         write(iounit, '(F10.3)', advance='no') block_input%matrix(global_index)
+
+         ! Check if we need to print newlines based on dimensional indices
+         do d = ndims, 2, -1
+            if (indices(d) == block_input%size(d)) then
+               write(iounit, *)
+               exit
+            end if
+         end do
+      end do
 
       if(ndims == 3) then
          write(iounit, *) "NOT DONE YET"

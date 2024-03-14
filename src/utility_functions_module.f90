@@ -2,12 +2,12 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, print_matrix, read_input_from_command_line, find_abs_diff_matrices, swap_pointers, sleeper_function
+   public :: IDX_XD, IDX_XD_INV, print_matrix, read_input_from_command_line, find_abs_diff_matrices, swap_pointers, sleeper_function
 
 contains
 
    !> Global index from ndims, dims, indices.
-   function IDX_XD(ndims, dims, indices) result(global_index)
+   pure function IDX_XD(ndims, dims, indices) result(global_index)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) :: dims, indices
       integer :: global_index
@@ -24,6 +24,35 @@ contains
       ! Adjust index for 1-based indexing of Fortran
       global_index = global_index + 1
    end function IDX_XD
+
+   !> Dimensional indices from ndims, dims, global_index.
+   pure function IDX_XD_INV(ndims, dims, global_index) result(indices)
+      integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: dims
+      integer, intent(in) :: global_index
+
+      integer, dimension(ndims) :: indices
+      integer :: d, remaining_index, product
+
+      ! Adjust index for 1-based indexing of Fortran
+      remaining_index = global_index - 1
+
+      ! Start with the product of all dimensions except the last one
+      product = 1
+      do d = 2, ndims
+         product = product * dims(d)
+      end do
+
+      do d = 1, ndims-1
+         indices(d) = (remaining_index / product) + 1
+         remaining_index = mod(remaining_index, product)
+         product = product / dims(d+1)
+      end do
+
+      ! Handle the last dimension separately
+      indices(ndims) = remaining_index + 1
+
+   end function IDX_XD_INV
 
    !> Routine to print a matrix.
    subroutine print_matrix(ndims, dims, matrix)

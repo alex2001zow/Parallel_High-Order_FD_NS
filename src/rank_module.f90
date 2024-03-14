@@ -55,13 +55,13 @@ contains
       parameters%world_size = world_size
 
       call allocate_rank_type(parameters)
-      parameters%grid_size = grid_size
-      parameters%processor_dim = processor_dim
+      parameters%grid_size(:) = grid_size(:)
+      parameters%processor_dim(:) = processor_dim(:)
 
-      parameters%domain_begin = 0.0
-      parameters%domain_end = 1.0
+      parameters%domain_begin(:) = 0.0
+      parameters%domain_end(:) = 1.0
 
-      dx = abs((parameters%domain_end - parameters%domain_begin)) / (parameters%grid_size-1)
+      dx = abs((parameters%domain_end(:) - parameters%domain_begin(:))) / (parameters%grid_size(:)-1)
 
       call set_function_pointers(func_enum, parameters%funcs)
 
