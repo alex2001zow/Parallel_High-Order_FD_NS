@@ -2,14 +2,15 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, IDX_XD_INV, print_matrix, read_input_from_command_line, find_abs_diff_matrices, swap_pointers, sleeper_function
+   public :: IDX_XD, IDX_XD_INV, print_real_array, print_integer_array, read_input_from_command_line, &
+      swap_pointers, sleeper_function
 
 contains
 
    !> Global index from ndims, dims, indices.
    pure function IDX_XD(ndims, dims, indices) result(global_index)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims, indices
+      integer, dimension(:), intent(in) :: dims, indices
       integer :: global_index
       integer :: d, product
 
@@ -28,7 +29,7 @@ contains
    !> Dimensional indices from ndims, dims, global_index.
    pure function IDX_XD_INV(ndims, dims, global_index) result(indices)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims
+      integer, dimension(:), intent(in) :: dims
       integer, intent(in) :: global_index
 
       integer, dimension(ndims) :: indices
@@ -54,27 +55,69 @@ contains
 
    end function IDX_XD_INV
 
-   !> Routine to print a matrix.
-   subroutine print_matrix(ndims, dims, matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims
-      real, dimension(product(dims)), intent(in) :: matrix
+   !> Routine to print an array of type real
+   subroutine print_real_array(ndims, dims, array, stride, title, iounit)
+      integer, intent(in) :: ndims, stride, iounit
+      integer, dimension(:), intent(in) :: dims
+      real, dimension(:), intent(in) :: array
+      character(len=*), intent(in) :: title
 
-      integer :: ii, jj, global_index
+      integer :: global_index, d, start_index, end_index
+      integer, dimension(ndims) :: indices
+      real, dimension(stride) :: temp_array
+      character(len=255) :: format_string
 
-      write(*, *) "size of matrix: ", size(matrix), "dims: ", dims, "product of dims", product(dims)
+      write(format_string, '("(", i0, "F", i0, ".", i0, ")")') stride, kind(array(1)), 3
 
-      if(ndims == 2) then
-         do ii = 1, dims(1)
-            do jj = 1, dims(2)
-               global_index = IDX_XD(ndims, dims, [ii, jj])
-               write(*, '(F10.3, " ")', advance="no") matrix(global_index)
-            end do
-            write(*, *)
+      write(iounit, *) title
+      do global_index = 1, product(dims)
+         indices = IDX_XD_INV(ndims, dims, global_index)
+         start_index = (global_index - 1) * stride + 1
+         end_index = global_index * stride
+         temp_array = array(start_index:end_index)
+         write(iounit, format_string, advance='no') temp_array
+
+         do d = ndims, 2, -1
+            if (indices(d) == dims(d)) then
+               write(iounit, *)
+               exit
+            end if
          end do
-      end if
+      end do
 
-   end subroutine print_matrix
+   end subroutine print_real_array
+
+   !> Routine to print an array of type integer
+   subroutine print_integer_array(ndims, dims, array, stride, title, iounit)
+      integer, intent(in) :: ndims, stride, iounit
+      integer, dimension(:), intent(in) :: dims
+      integer, dimension(:), intent(in) :: array
+      character(len=*), intent(in) :: title
+
+      integer :: global_index, d, start_index, end_index
+      integer, dimension(ndims) :: indices
+      integer, dimension(stride) :: temp_array
+      character(len=255) :: format_string
+
+      write(format_string, '("(", i0, "I", i0, ")")') stride, kind(array(1))
+
+      write(iounit, *) title
+      do global_index = 1, product(dims)
+         indices = IDX_XD_INV(ndims, dims, global_index)
+         start_index = (global_index - 1) * stride + 1
+         end_index = global_index * stride
+         temp_array = array(start_index:end_index)
+         write(iounit, format_string, advance='no') temp_array
+
+         do d = ndims, 2, -1
+            if (indices(d) == dims(d)) then
+               write(iounit, *)
+               exit
+            end if
+         end do
+      end do
+
+   end subroutine print_integer_array
 
    !> Routine to read input from the command line
    subroutine read_input_from_command_line(ndims, grid_size, processor_dim)
@@ -113,26 +156,6 @@ contains
       ptr1 => ptr2
       ptr2 => temp_ptr
    end subroutine swap_pointers
-
-   !> Routine to print the absolute difference between two matrices.
-   subroutine find_abs_diff_matrices(ndims, dims, matrix1, matrix2)
-      integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims
-      real, dimension(product(dims)), intent(in) :: matrix1, matrix2
-
-      integer :: ii, jj, global_index
-
-      if(ndims == 2) then
-         do ii = 1, dims(1)
-            do jj = 1, dims(2)
-               global_index = IDX_XD(ndims, dims, [ii, jj])
-               write(*, '(F10.3, " ")', advance="no") abs(matrix1(global_index) - matrix2(global_index))
-            end do
-            write(*, *)
-         end do
-      end if
-
-   end subroutine find_abs_diff_matrices
 
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
    subroutine sleeper_function(sleep_time)

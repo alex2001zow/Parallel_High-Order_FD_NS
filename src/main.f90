@@ -66,14 +66,15 @@ subroutine run_simulation()
       write(*,"(A, E10.3)") "Rel_norm: ", result_array_with_timings(2)
       write(*,"(A, F10.1)") "Converged: ", result_array_with_timings(3)
       write(*,"(A, F10.1)") "Iterations: ", result_array_with_timings(4)
-      write(*,"(A, E10.3, A)") "Total wall time / processors: ", result_array_with_timings(8)/world_size, " seconds"
+      write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(8)/world_size, " seconds"
 
       ! Write out the cartesian grid from the master rank
-      !call print_cartesian_grid(rank_params%comm%comm, rank_params%world_size, rank_params%ndims, filename_txt)
+      !call print_cartesian_grid(rank_params%ndims, rank_params%comm%comm, rank_params%world_size, &
+      !   rank_params%processor_dim, filename_txt)
    end if
 
    ! Write out the rank parameters from each rank. Just for debugging purposes
-   call print_rank_type(rank_params, filename_txt)
+   !call print_rank_type(rank_params, filename_txt)
 
    ! Write out system solution to a file
    call write_rank_type_blocks_to_file(rank_params, filename_dat)

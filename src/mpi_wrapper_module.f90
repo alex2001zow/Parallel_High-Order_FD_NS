@@ -48,7 +48,7 @@ contains
    subroutine isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
 
       integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(array_size), intent(inout) :: send_array
+      real, dimension(:), intent(inout) :: send_array
       integer, intent(out) :: send_request_8
 
       call MPI_ISEND(send_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
@@ -62,7 +62,7 @@ contains
    subroutine irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
 
       integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(array_size), intent(inout) :: recv_array
+      real, dimension(:), intent(inout) :: recv_array
       integer, intent(out) :: recv_request_8
 
       call MPI_IRECV(recv_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, int(sendrecv_rank,kind=4), &
@@ -78,7 +78,7 @@ contains
       sendrecv_rank, comm, send_request_8, recv_request_8)
 
       integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(array_size), intent(inout) :: send_array, recv_array
+      real, dimension(:), intent(inout) :: send_array, recv_array
       integer, intent(out) :: send_request_8, recv_request_8
 
       ! Declaration section remains the same
@@ -90,7 +90,7 @@ contains
    !> Subroutine wrapper for a wait all operation
    subroutine waitall_mpi_wrapper(num_requests_8, requests_8)
       integer, intent(in) :: num_requests_8
-      integer, dimension(num_requests_8), intent(inout) :: requests_8
+      integer, dimension(:), intent(inout) :: requests_8
 
       integer(kind=4), dimension(num_requests_8) :: requests_4
 
@@ -105,7 +105,7 @@ contains
    !> This subroutine creates a cartesian communicator
    subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, comm_cart_8)
       integer, intent(in) :: ndims_8
-      integer, dimension(ndims_8), intent(in) :: dims_8
+      integer, dimension(:), intent(in) :: dims_8
 
       logical(kind=4) :: periods_4(ndims_8)
       logical(kind=4) :: reorder_4 = .TRUE.
@@ -142,7 +142,7 @@ contains
    !> Routine to get the rank of a process given its coordinates
    subroutine cart_rank_mpi_wrapper(comm_8, ndims_8, indices_8, rank_of_coords_8, error_8)
       integer, intent(in) :: comm_8, ndims_8
-      integer, dimension(ndims_8), intent(in) :: indices_8
+      integer, dimension(:), intent(in) :: indices_8
 
       integer, intent(out) :: rank_of_coords_8, error_8
 
@@ -227,10 +227,9 @@ contains
       integer, intent(in) :: ndims, num_blocks, block_length, block_stride, starting_offset, extent
       character(len=*), intent(in) :: solution_filename
       integer, intent(in) :: comm, solution_count
-      integer, dimension(ndims), intent(in) :: global_dims, block_dims, block_begin
-      real, dimension(solution_count), intent(in) :: solution_buffer
+      integer, dimension(:), intent(in) :: global_dims, block_dims, block_begin
+      real, dimension(:), intent(in) :: solution_buffer
       integer(kind=MPI_OFFSET_KIND), intent(in) :: solution_offset
-
 
       integer(kind=4) :: ndims_4, num_blocks_4, block_length_4, block_stride_4
       integer(kind=MPI_ADDRESS_KIND) :: starting_offset_4, extent_4

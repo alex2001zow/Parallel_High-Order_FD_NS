@@ -1,7 +1,7 @@
 module block_module
    use constants_module, only: neighbor_non_existant_rank
    use comm_module, only: comm_type
-   use utility_functions_module, only: IDX_XD, IDX_XD_INV, sleeper_function
+   use utility_functions_module, only: IDX_XD, IDX_XD_INV, print_real_array, print_integer_array, sleeper_function
    implicit none
 
    private
@@ -9,10 +9,10 @@ module block_module
    !> Structure to store the block information.
    type block_type
       integer :: num_elements, num_sendrecv_elements
-      integer, allocatable :: size(:), begin(:), end(:)
+      integer, dimension(:), allocatable :: size, begin, end
       real, dimension(:), allocatable :: matrix, f_array, temp_array
-      real, allocatable :: elements_send(:), elements_recv(:)
-      integer, allocatable :: sendrecv_start_index(:)
+      real, dimension(:), allocatable :: elements_send, elements_recv
+      integer, dimension(:), allocatable :: sendrecv_start_index
    end type block_type
 
    public :: block_type, create_block_type, deallocate_block_type, print_block_type
@@ -88,7 +88,6 @@ contains
 
       if(allocated(block_input%sendrecv_start_index)) deallocate(block_input%sendrecv_start_index)
 
-
    end subroutine deallocate_block_type
 
    !> Subroutine to print the block structure.
@@ -96,8 +95,9 @@ contains
       integer, intent(in) :: ndims, iounit
       type(block_type), intent(in) :: block_input
 
-      integer :: ii, jj, global_index, d
-      integer, dimension(ndims) :: indices
+      integer, dimension(ndims) :: neighbor_array
+
+      neighbor_array(:) = 3 ! 3 is the number of neighbors per dimension
 
       ! Newlines for readability
       write(iounit, *)
@@ -110,38 +110,12 @@ contains
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "num_sendrecv_elements: ", block_input%num_sendrecv_elements
 
-      if(ndims == 2) then
+      call print_integer_array(ndims, neighbor_array, block_input%sendrecv_start_index, 1, "sendrecv_start_index", iounit)
 
-         write(iounit, *) "sendrecv_start_index: "
-         do ii = 1, 3
-            do jj = 1, 3
-               global_index = IDX_XD(ndims, [3,3], [ii, jj])
-               write(iounit, '(I5)', advance='no') block_input%sendrecv_start_index(global_index)
-            end do
-            write(iounit, *)
-         end do
+      write(iounit, '(A, *(F10.3))') "elements_send: ", block_input%elements_send(:)
+      write(iounit, '(A, *(F10.3))') "elements_recv: ", block_input%elements_recv(:)
 
-         write(iounit, '(A, *(F10.3))') "elements_send: ", block_input%elements_send(:)
-         write(iounit, '(A, *(F10.3))') "elements_recv: ", block_input%elements_recv(:)
-
-      endif
-
-      do global_index = 1, product(block_input%size)
-         indices = IDX_XD_INV(ndims, block_input%size, global_index)
-         write(iounit, '(F10.3)', advance='no') block_input%matrix(global_index)
-
-         ! Check if we need to print newlines based on dimensional indices
-         do d = ndims, 2, -1
-            if (indices(d) == block_input%size(d)) then
-               write(iounit, *)
-               exit
-            end if
-         end do
-      end do
-
-      if(ndims == 3) then
-         write(iounit, *) "NOT DONE YET"
-      endif
+      call print_real_array(ndims, block_input%size, block_input%matrix, 1, "Matrix", iounit)
 
    end subroutine print_block_type
 

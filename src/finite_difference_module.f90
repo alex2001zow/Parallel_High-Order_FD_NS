@@ -1,5 +1,5 @@
 module finite_difference_module
-   use utility_functions_module, only : IDX_XD, sleeper_function, print_matrix
+   use utility_functions_module, only : IDX_XD, sleeper_function
    use block_module, only : block_type
    implicit none
 
@@ -7,8 +7,8 @@ module finite_difference_module
 
    type FDstencil_type
       integer :: num_derivatives
-      integer, allocatable :: derivatives(:), alphas(:), betas(:), stencil_sizes(:), derivatives_order(:)
-      real, allocatable :: derivatives_sign(:), dx(:), stencil_coefficients(:)
+      integer, dimension(:), allocatable :: derivatives, alphas, betas, stencil_sizes, derivatives_order
+      real, dimension(:), allocatable :: derivatives_sign, dx, stencil_coefficients
       real :: center_coefficient
    end type FDstencil_type
 

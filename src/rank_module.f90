@@ -19,8 +19,8 @@ module rank_module
    !> Structure to hold the parameters for each rank.
    type rank_type
       integer :: ndims, rank, world_size
-      integer, allocatable :: grid_size(:), processor_dim(:)
-      real, allocatable :: domain_begin(:), domain_end(:)
+      integer, dimension(:), allocatable :: grid_size, processor_dim
+      real, dimension(:), allocatable :: domain_begin, domain_end
 
       type(FunctionPair) :: funcs
       type(comm_type) :: comm
@@ -39,7 +39,7 @@ contains
    !> Routine to create the rank_type
    subroutine create_rank_type(ndims, grid_size, processor_dim, func_enum, rank, world_size, parameters)
       integer, intent(in) :: ndims, rank, world_size, func_enum
-      integer, dimension(ndims), intent(in) :: grid_size, processor_dim
+      integer, dimension(:), intent(in) :: grid_size, processor_dim
       type(rank_type), intent(inout) :: parameters
 
       integer, parameter :: num_derivatives = 2

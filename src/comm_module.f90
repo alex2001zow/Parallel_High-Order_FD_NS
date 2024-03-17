@@ -1,7 +1,7 @@
 module comm_module
    use mpi, only : MPI_REQUEST_NULL
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
-   use utility_functions_module, only: IDX_XD
+   use utility_functions_module, only: IDX_XD, IDX_XD_INV, print_real_array, print_integer_array, sleeper_function
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper,change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, cart_rank_mpi_wrapper, &
@@ -12,10 +12,10 @@ module comm_module
 
    type comm_type
       integer :: comm, num_neighbors
-      integer, allocatable :: coords(:), neighbors(:), offset_begin(:), offset_end(:)
-      integer, allocatable :: begin(:), end(:), size(:)
-      integer, allocatable :: neighbor_send_indices(:), neighbor_recv_indices(:), neighbor_elements_size(:)
-      integer, allocatable :: neighbor_send_request(:), neighbor_recv_request(:)
+      integer, dimension(:), allocatable :: coords, neighbors, offset_begin, offset_end
+      integer, dimension(:), allocatable :: begin, end, size
+      integer, dimension(:), allocatable :: neighbor_send_indices, neighbor_recv_indices, neighbor_elements_size
+      integer, dimension(:), allocatable :: neighbor_send_request, neighbor_recv_request
    end type comm_type
 
    public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, print_cartesian_grid, &
@@ -26,7 +26,7 @@ contains
    !> Allocate a comm_type object
    subroutine create_cart_comm_type(ndims, dimensions, processor_dim, rank, comm_output)
       integer, intent(in) :: ndims, rank
-      integer, dimension(ndims), intent(in) :: dimensions, processor_dim
+      integer, dimension(:), intent(in) :: dimensions, processor_dim
       type(comm_type), intent(inout) :: comm_output
 
       comm_output%num_neighbors = 3**ndims
@@ -59,7 +59,7 @@ contains
    !> Create a cartesian communicator in OpenMPI
    subroutine create_cart_communicator(ndims, processor_dim, cart_comm)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: processor_dim
+      integer, dimension(:), intent(in) :: processor_dim
 
       integer, intent(out) :: cart_comm
 
@@ -70,7 +70,7 @@ contains
    !> Get the cartesian coordinates of a rank in a communicator
    subroutine get_cart_coords(cart_comm, rank, ndims, coords)
       integer, intent(in) :: cart_comm, rank, ndims
-      integer, dimension(ndims), intent(inout) :: coords
+      integer, dimension(:), intent(inout) :: coords
 
       call get_cart_coords_mpi_wrapper(cart_comm, rank, ndims, coords)
 
@@ -79,13 +79,12 @@ contains
    !> Find the Moore neighborhood of a rank in a cartesian communicator. We should check the order column vs row. Not sure it is correct but it seems to work.
    subroutine get_cart_neighbors(ndims, coords, cart_comm, neighbors, offset_begin, offset_end)
       integer, intent(in) :: ndims, cart_comm
-      integer, dimension(ndims), intent(in) :: coords
+      integer, dimension(:), intent(in) :: coords
+      integer, dimension(:), intent(inout) :: neighbors
+      integer, dimension(:), intent(inout) :: offset_begin, offset_end
 
-      integer, dimension(3**ndims), intent(inout) :: neighbors
-      integer, dimension(ndims), intent(inout) :: offset_begin, offset_end
-
-      integer :: ii, jj, global_index
-      integer, dimension(ndims) :: indices, current_index
+      integer :: global_index
+      integer, dimension(ndims) :: neighbor_array, indices, current_index
       integer :: rank_of_coords, error
 
       ! Prevent MPI from aborting when we try to find neighbors that do not exist
@@ -95,29 +94,26 @@ contains
       offset_begin(:) = 0
       offset_end(:) = 0
 
-      global_index = 1
+      neighbor_array(:) = 3
 
-      if(ndims == 2) then
-         do ii = -1,1,1
-            do jj = -1,1,1
-               current_index = [ii, jj]
-               indices = coords + current_index
+      do global_index = 1, 3**ndims
+         current_index = IDX_XD_INV(ndims, neighbor_array, global_index)
+         current_index = current_index - 2
 
-               call cart_rank_mpi_wrapper(cart_comm, ndims, indices, rank_of_coords, error)
+         indices = coords + current_index
 
-               if(error == 1) then
-                  neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
-               else if(ii == 0 .AND. jj == 0) then
-                  neighbors(global_index) = neighbor_current_rank ! This is the current rank
-               else
-                  neighbors(global_index) = rank_of_coords
-                  offset_begin(:) = min(offset_begin(:), current_index)
-                  offset_end(:) = max(offset_end(:), current_index)
-               endif
-               global_index = global_index + 1
-            end do
-         end do
-      end if
+         call cart_rank_mpi_wrapper(cart_comm, ndims, indices, rank_of_coords, error)
+
+         if(error == 1) then
+            neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank
+         else if(all(current_index == 0)) then
+            neighbors(global_index) = neighbor_current_rank ! This is the current rank
+         else
+            neighbors(global_index) = rank_of_coords
+            offset_begin(:) = min(offset_begin(:), current_index)
+            offset_end(:) = max(offset_end(:), current_index)
+         endif
+      end do
 
       ! Restore the original error handler to abort on errors
       call original_MPI_COMM_errhandler_mpi_wrapper(cart_comm)
@@ -127,8 +123,8 @@ contains
    !> Calculate the indices of the elements that need to be sent to the neighbors
    subroutine calculate_neighbor_indices(ndims, dims, send_array, recv_array)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims
-      integer, dimension((3**ndims) * 2 * ndims), intent(inout) :: send_array, recv_array
+      integer, dimension(:), intent(in) :: dims
+      integer, dimension(:), intent(inout) :: send_array, recv_array
 
       integer :: ii, jj, global_index
       integer, dimension(2*ndims) :: send_indices, recv_indices
@@ -193,8 +189,8 @@ contains
    !> Subroutine to get the neighbor indices out
    subroutine get_neighbor_indices(ndims, neighbor_index, indices, begin, end)
       integer, intent(in) :: ndims, neighbor_index
-      integer, dimension((3**ndims) * 2 * ndims), intent(in) :: indices
-      integer, dimension(ndims), intent(out) :: begin, end
+      integer, dimension(:), intent(in) :: indices
+      integer, dimension(:), intent(out) :: begin, end
 
       integer :: start_index
 
@@ -267,7 +263,9 @@ contains
       type(comm_type), intent(in) :: comm
       integer, intent(in) :: iounit
 
-      integer :: ii, jj, global_index
+      integer, dimension(ndims) :: neighbor_array
+
+      neighbor_array(:) = 3
 
       ! Newlines for readability
       write(iounit, *)
@@ -277,87 +275,35 @@ contains
       write(iounit, *) "comm: ", comm%comm
       write(iounit, *) "coords: ", comm%coords
 
-      if(ndims == 2) then
-         write(iounit, *) "offset_begin: ", comm%offset_begin
-         write(iounit, *) "offset_end: ", comm%offset_end
-         write(iounit, *) "begin: ", comm%begin
-         write(iounit, *) "end: ", comm%end
-         write(iounit, *) "size: ", comm%size
+      write(iounit, *) "begin: ", comm%begin
+      write(iounit, *) "end: ", comm%end
+      write(iounit, *) "offset_begin: ", comm%offset_begin
+      write(iounit, *) "offset_end: ", comm%offset_end
+      write(iounit, *) "size: ", comm%size
 
-         write(iounit, *) "Neighbor element size: "
-         do ii = 1, 3
-            do jj = 1,3
-               global_index = IDX_XD(ndims, [3,3], [ii, jj])
-               write(iounit, '(I5)', advance='no') comm%neighbor_elements_size(global_index)
-            end do
-            write(iounit, *)
-         end do
+      call print_integer_array(ndims, neighbor_array, comm%neighbor_elements_size, 1, "Neighbor element size: ", iounit)
 
-         write(iounit, *) "Neighbor send indices: "
-         global_index = 1
-         do ii = 1, 3
-            do jj = 1, 3
-               write(iounit, '(A, I5, I5, I5, I5, A)', advance='no') "[", comm%neighbor_send_indices(global_index), &
-                  comm%neighbor_send_indices(global_index + 1), comm%neighbor_send_indices(global_index + 2), &
-                  comm%neighbor_send_indices(global_index + 3), "]"
-               global_index = global_index + 4
-            end do
-            write(iounit, *)
-         end do
+      call print_integer_array(ndims, neighbor_array, comm%neighbor_send_indices, 2*ndims, "Neighbor send indices: ", iounit)
 
-         write(iounit, *) "Neighbor recv indices: "
-         global_index = 1
-         do ii = 1, 3
-            do jj = 1, 3
-               write(iounit, '(A, I5, I5, I5, I5, A)', advance='no') "[", comm%neighbor_recv_indices(global_index), &
-                  comm%neighbor_recv_indices(global_index + 1), comm%neighbor_recv_indices(global_index + 2), &
-                  comm%neighbor_recv_indices(global_index + 3), "]"
-               global_index = global_index + 4
-            end do
-            write(iounit, *)
-         end do
+      call print_integer_array(ndims, neighbor_array, comm%neighbor_recv_indices, 2*ndims, "Neighbor recv indices: ", iounit)
 
-         write(iounit, *) "Neighbor ranks: "
-         do ii = 1, 3
-            do jj = 1, 3
-               global_index = IDX_XD(2, [3,3], [ii, jj])
-               write(iounit, '(I5)', advance='no') comm%neighbors(global_index)
-            end do
-            write(iounit, *)
-         end do
-      endif
+      call print_integer_array(ndims, neighbor_array, comm%neighbors, 1, "Neighbor ranks: ", iounit)
 
-      write(iounit, *) "neighbor_send_request: "
-      do ii = 1,3
-         do jj = 1,3
-            global_index = IDX_XD(2, [3,3], [ii, jj])
-            write(iounit, '(I5)', advance='no') comm%neighbor_send_request(global_index)
-         end do
-         write(iounit, *)
-      end do
+      call print_integer_array(ndims, neighbor_array, comm%neighbor_send_request, 1, "Neighbor send request: ", iounit)
 
-      write(iounit, *) "neighbor_recv_request: "
-      do ii = 1,3
-         do jj = 1,3
-            global_index = IDX_XD(2, [3,3], [ii, jj])
-            write(iounit, '(I5)', advance='no') comm%neighbor_recv_request(global_index)
-         end do
-         write(iounit, *)
-      end do
-
-      if(ndims == 3) then
-         write(iounit, *) "NOT DONE YET"
-      endif
+      call print_integer_array(ndims, neighbor_array, comm%neighbor_recv_request, 1, "Neighbor recv request: ", iounit)
 
    end subroutine print_cart_comm_type
 
    !> A routine to print the cartesian grid of the ranks.
-   subroutine print_cartesian_grid(cart_comm, world_size, ndim, filename)
-      integer, intent(in) :: cart_comm, world_size  ! Cartesian communicator
-      integer, intent(in) :: ndim       ! Number of dimensions
-      character(len=*), intent(in) :: filename  ! Base filename
-      integer :: current_rank, iounit, ios
-      integer, dimension(ndim) :: coords  ! Coordinates in the cartesian topology
+   subroutine print_cartesian_grid(ndims, cart_comm, world_size, processor_dim, filename)
+      integer, intent(in) :: ndims, cart_comm, world_size
+      integer, dimension(:), intent(in) :: processor_dim
+      character(len=*), intent(in) :: filename
+
+      integer :: current_rank, start_index, end_index, iounit, ios
+      integer, dimension(ndims) :: coords
+      integer, dimension(world_size * (ndims+1)) :: rank_and_coords
       character(255) :: file_with_grid
 
       ! Construct the filename by appending "_cart_grid" to the original filename
@@ -373,16 +319,20 @@ contains
       endif
 
       ! Write the header to the file
-      write(iounit, *) "Rank cartesian processor grid with dimension:", ndim
+      write(iounit, *) "Rank cartesian processor grid with dimension:", processor_dim
 
       ! Iterate over all ranks in the cartesian communicator
-      do current_rank = 0, world_size - 1
+      do current_rank = 1, world_size
          ! Get the coordinates for the current rank
-         call get_cart_coords_mpi_wrapper(cart_comm, current_rank, ndim, coords)
+         call get_cart_coords_mpi_wrapper(cart_comm, current_rank-1, ndims, coords)
 
-         ! Write the rank and its coordinates to the file
-         write(iounit, '(A, I4, A, *(I4, 1X))') "Rank ", current_rank, " coords: ", coords
+         start_index = (current_rank-1) * (ndims+1) + 1
+         end_index = current_rank * (ndims+1)
+         rank_and_coords(start_index:end_index) = [current_rank-1, coords]
+
       end do
+
+      call print_integer_array(ndims, processor_dim, rank_and_coords, ndims+1, "Rank and coords: ", iounit)
 
       ! Close the file
       close(iounit)
