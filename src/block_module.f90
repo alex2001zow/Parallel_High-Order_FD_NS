@@ -110,7 +110,7 @@ contains
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "num_sendrecv_elements: ", block_input%num_sendrecv_elements
 
-      call print_integer_array(ndims, neighbor_array, block_input%sendrecv_start_index, 1, "sendrecv_start_index", iounit)
+      call print_integer_array(ndims, neighbor_array, block_input%sendrecv_start_index, 1, "sendrecv_start_index: ", iounit)
 
       write(iounit, '(A, *(F10.3))') "elements_send: ", block_input%elements_send(:)
       write(iounit, '(A, *(F10.3))') "elements_recv: ", block_input%elements_recv(:)

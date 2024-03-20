@@ -2,8 +2,10 @@ module utility_functions_module
    implicit none
 
    private
-   public :: IDX_XD, IDX_XD_INV, print_real_array, print_integer_array, read_input_from_command_line, &
-      swap_pointers, sleeper_function
+   public :: IDX_XD, IDX_XD_INV
+   public :: print_real_array, print_integer_array
+   public :: open_txt_file, close_txt_file
+   public :: read_input_from_command_line, swap_pointers, sleeper_function
 
 contains
 
@@ -62,25 +64,25 @@ contains
       real, dimension(:), intent(in) :: array
       character(len=*), intent(in) :: title
 
-      integer :: global_index, d, start_index, end_index
+      integer :: do_end, global_index, d, start_index, end_index
       integer, dimension(ndims) :: indices
-      real, dimension(stride) :: temp_array
-      character(len=255) :: format_string
 
-      write(format_string, '("(", i0, "F", i0, ".", i0, ")")') stride, kind(array(1)), 3
+      if(ndims > 1) then
+         do_end = product(dims(2:ndims))
+      else
+         do_end = dims(1)
+      end if
 
       write(iounit, *) title
-      do global_index = 1, product(dims)
+      do global_index = 1, do_end
          indices = IDX_XD_INV(ndims, dims, global_index)
-         start_index = (global_index - 1) * stride + 1
-         end_index = global_index * stride
-         temp_array = array(start_index:end_index)
-         write(iounit, format_string, advance='no') temp_array
+         start_index = (global_index - 1) * dims(1) * stride + 1
+         end_index = global_index * dims(1) * stride
+         write(iounit, *) array(start_index:end_index)
 
-         do d = ndims, 2, -1
+         do d = ndims, 3, -1
             if (indices(d) == dims(d)) then
                write(iounit, *)
-               exit
             end if
          end do
       end do
@@ -94,30 +96,59 @@ contains
       integer, dimension(:), intent(in) :: array
       character(len=*), intent(in) :: title
 
-      integer :: global_index, d, start_index, end_index
+      integer :: do_end, global_index, d, start_index, end_index
       integer, dimension(ndims) :: indices
-      integer, dimension(stride) :: temp_array
-      character(len=255) :: format_string
 
-      write(format_string, '("(", i0, "I", i0, ")")') stride, kind(array(1))
+      if(ndims > 1) then
+         do_end = product(dims(2:ndims))
+      else
+         do_end = dims(1)
+      end if
 
       write(iounit, *) title
-      do global_index = 1, product(dims)
+      do global_index = 1, do_end
          indices = IDX_XD_INV(ndims, dims, global_index)
-         start_index = (global_index - 1) * stride + 1
-         end_index = global_index * stride
-         temp_array = array(start_index:end_index)
-         write(iounit, format_string, advance='no') temp_array
+         start_index = (global_index - 1) * dims(1) * stride + 1
+         end_index = global_index * dims(1) * stride
+         write(iounit, *) array(start_index:end_index)
 
-         do d = ndims, 2, -1
+         do d = ndims, 3, -1
             if (indices(d) == dims(d)) then
                write(iounit, *)
-               exit
             end if
          end do
       end do
 
    end subroutine print_integer_array
+
+   !> Routine to open a file for writing
+   subroutine open_txt_file(filename, rank, iounit)
+      character(255), intent(in) :: filename
+      integer, intent(in) :: rank
+
+      integer :: iounit, ios
+      character(255) :: file_with_rank
+
+      ! Create a modified filename by appending the rank to the original filename
+      write(file_with_rank, '(A, I0, A)') trim(filename), rank, ".txt"
+
+      ! Open the file for writing, associate it with a logical unit (iounit)
+      open(newunit=iounit, file=file_with_rank, status='replace', action='write', iostat=ios)
+
+      ! Check for errors in opening the file
+      if (ios /= 0) then
+         print *, "Error opening file: ", file_with_rank
+         return
+      end if
+
+   end subroutine open_txt_file
+
+   !> Subroutine to close a file
+   subroutine close_txt_file(iounit)
+      integer, intent(in) :: iounit
+
+      close(iounit)
+   end subroutine close_txt_file
 
    !> Routine to read input from the command line
    subroutine read_input_from_command_line(ndims, grid_size, processor_dim)

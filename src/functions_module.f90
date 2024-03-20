@@ -6,7 +6,7 @@ private
 
 enum, bind(C)
    enumerator :: DefaultModel = 0
-   enumerator :: Poisson = 1
+   enumerator :: PoissonModel = 1
    enumerator :: AnotherModel = 2
    ! Add more models as needed
 end enum
@@ -33,7 +33,7 @@ type :: FunctionPair
    type(FunctionPtrType) :: analytical_func
 end type FunctionPair
 
-public :: Poisson
+public :: PoissonModel
 public :: FunctionPtrType, FunctionPair, set_function_pointers
 
 contains
@@ -50,7 +50,7 @@ subroutine set_function_pointers(enum_val, funcPair)
 
    ! Check for the matching name and set the function pointers
    select case(enum_val)
-    case(Poisson)
+    case(PoissonModel)
       funcPair%initial_condition_func%func => initial_poisson
       funcPair%boundary_condition_func%func => boundary_poisson
       funcPair%rhs_func%func => f_analytical_poisson

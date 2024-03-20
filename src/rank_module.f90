@@ -11,7 +11,7 @@ module rank_module
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, &
       write_to_file_mpi_wrapper
-   use utility_functions_module, only : IDX_XD, sleeper_function
+   use utility_functions_module, only : IDX_XD, IDX_XD_INV, sleeper_function
    implicit none
 
    private
@@ -21,11 +21,6 @@ module rank_module
       integer :: ndims, rank, world_size
       integer, dimension(:), allocatable :: grid_size, processor_dim
       real, dimension(:), allocatable :: domain_begin, domain_end
-
-      type(FunctionPair) :: funcs
-      type(comm_type) :: comm
-      type(FDstencil_type) :: FDstencil
-      type(block_type) :: block
 
    end type rank_type
 
@@ -37,40 +32,22 @@ module rank_module
 contains
 
    !> Routine to create the rank_type
-   subroutine create_rank_type(ndims, grid_size, processor_dim, func_enum, rank, world_size, parameters)
-      integer, intent(in) :: ndims, rank, world_size, func_enum
-      integer, dimension(:), intent(in) :: grid_size, processor_dim
+   subroutine create_rank_type(ndims, rank, world_size, grid_size, processor_dim, domain_begin, domain_end, parameters)
+      integer, intent(in) :: ndims, rank, world_size
+      integer, dimension(ndims), intent(in) :: grid_size, processor_dim
+      real, dimension(ndims), intent(in) :: domain_begin, domain_end
       type(rank_type), intent(inout) :: parameters
-
-      integer, parameter :: num_derivatives = 2
-      integer, dimension(2*num_derivatives), parameter :: derivatives = [1,3,3,1]
-      integer, dimension(2*num_derivatives), parameter :: derivatives_order = [0,2,2,0]
-      real, dimension(num_derivatives), parameter :: derivatives_sign = [1,1]
-
-      integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
-      real, dimension(2) :: dx
 
       parameters%ndims = ndims
       parameters%rank = rank
       parameters%world_size = world_size
 
       call allocate_rank_type(parameters)
-      parameters%grid_size(:) = grid_size(:)
-      parameters%processor_dim(:) = processor_dim(:)
+      parameters%grid_size = grid_size
+      parameters%processor_dim = processor_dim
 
-      parameters%domain_begin(:) = 0.0
-      parameters%domain_end(:) = 1.0
-
-      dx = abs((parameters%domain_end(:) - parameters%domain_begin(:))) / (parameters%grid_size(:)-1)
-
-      call set_function_pointers(func_enum, parameters%funcs)
-
-      call create_cart_comm_type(parameters%ndims, parameters%grid_size, parameters%processor_dim, parameters%rank, parameters%comm)
-
-      call create_finite_difference_stencil(parameters%ndims, num_derivatives, derivatives, derivatives_order,&
-         derivatives_sign, dx, alphas, betas, parameters%FDstencil)
-
-      call create_block_type(parameters%ndims, parameters%comm, parameters%block)
+      parameters%domain_begin = domain_begin
+      parameters%domain_end = domain_end
 
    end subroutine create_rank_type
 
@@ -94,60 +71,35 @@ contains
       if (allocated(parameters%domain_begin)) deallocate(parameters%domain_begin)
       if (allocated(parameters%domain_end)) deallocate(parameters%domain_end)
 
-      call deallocate_cart_comm_type(parameters%comm)
-      call deallocate_finite_difference_stencil(parameters%FDstencil)
-      call deallocate_block_type(parameters%block)
-
    end subroutine deallocate_rank_type
 
    !> Routine to print the rank_type
-   subroutine print_rank_type(parameters, filename)
-      type(rank_type), intent(in) :: parameters
-      character(255), intent(in) :: filename
-      integer :: iounit, ios
-      character(255) :: file_with_rank
-
-      ! Create a modified filename by appending the rank to the original filename
-      write(file_with_rank, '(A, I0, A)') trim(filename), parameters%rank, ".txt"
-
-      ! Open the file for writing, associate it with a logical unit (iounit)
-      open(newunit=iounit, file=file_with_rank, status='replace', action='write', iostat=ios)
-
-      ! Check for errors in opening the file
-      if (ios /= 0) then
-         print *, "Error opening file: ", file_with_rank
-         return
-      end if
+   subroutine print_rank_type(parameters_in, iounit)
+      type(rank_type), intent(in) :: parameters_in
+      integer, intent(in) :: iounit
 
       ! Newlines for readability
       write(iounit, *)
       write(iounit, *) "rank_type: "
       write(iounit, *)
 
-      write(iounit, *) "ndims:", parameters%ndims
-      write(iounit, *) "rank: ", parameters%rank
-      write(iounit, *) "world_size: ", parameters%world_size
+      write(iounit, *) "ndims:", parameters_in%ndims
+      write(iounit, *) "rank: ", parameters_in%rank
+      write(iounit, *) "world_size: ", parameters_in%world_size
 
-      write(iounit, *) "grid_size: ", parameters%grid_size
-      write(iounit, *) "processor_dim: ", parameters%processor_dim
-
-      call print_cart_comm_type(parameters%ndims, parameters%comm, iounit)
-
-      call print_finite_difference_stencil(parameters%ndims, parameters%FDstencil, iounit)
-
-      call print_block_type(parameters%ndims, parameters%block, iounit)
-
-      ! Close the file
-      close(iounit)
+      write(iounit, *) "grid_size: ", parameters_in%grid_size
+      write(iounit, *) "processor_dim: ", parameters_in%processor_dim
 
    end subroutine print_rank_type
 
    !> Routine to write the block data to a file
-   subroutine write_rank_type_blocks_to_file(parameters, filename_system_solution)
-      character(255), intent(in) :: filename_system_solution
-      type(rank_type), intent(in) :: parameters
+   subroutine write_rank_type_blocks_to_file(parameters_in, comm_in, block_in, filename_system_solution_in)
+      character(255), intent(in) :: filename_system_solution_in
+      type(rank_type), intent(in) :: parameters_in
+      type(comm_type), intent(in) :: comm_in
+      type(block_type), intent(in) :: block_in
 
-      integer, dimension(parameters%ndims) :: block_dims, block_begin
+      integer, dimension(parameters_in%ndims) :: block_dims, block_begin
       integer :: offset_solution, elements_to_write, starting_offset, extent
       integer :: num_blocks_type_vector, whole_block_count
 
@@ -155,29 +107,29 @@ contains
 
       size_real = sizeof(0.0d0) ! Size of a double precision number in bytes
 
-      block_dims = parameters%block%size ! Size of the block (including ghost points)
-      block_begin = parameters%block%begin ! Start index of the block (including ghost points)
+      block_dims = block_in%size ! Size of the block (including ghost points)
+      block_begin = block_in%begin ! Start index of the block (including ghost points)
 
       num_blocks_type_vector = 1
       whole_block_count = product(block_dims)
 
       elements_to_write = whole_block_count ! Number of elements to write to the file
-      offset_solution = (parameters%rank) * elements_to_write * size_real ! Where in the file to start writing the true block. Times 8 for double precision
+      offset_solution = (parameters_in%rank) * elements_to_write * size_real ! Where in the file to start writing the true block. Times 8 for double precision
       starting_offset = product(block_begin) * size_real ! The starting offset for the true block in the full block. This is for MPI_TYPE_VECTOR.
       extent = elements_to_write * size_real ! Where the true block ends in the full block. Times 8 for double precision
 
-      call write_to_file_mpi_wrapper(parameters%ndims, & ! number of dimensions
-         filename_system_solution, & ! name of the file
-         parameters%comm%comm, & ! MPI communicator
+      call write_to_file_mpi_wrapper(parameters_in%ndims, & ! number of dimensions
+         filename_system_solution_in, & ! name of the file
+         comm_in%comm, & ! MPI communicator
          num_blocks_type_vector, & ! num blocks for MPI_TYPE_VECTOR. This is the total number of blocks (including ghost points)
          whole_block_count, & ! block_length (no ghost points)
          whole_block_count, & ! full block length (stride) (including ghost points)
          0, & ! starting offset for MPI_TYPE_RESIZED. Currently found using MPI_GET_EXTENT for just the whole block.
          0, & ! extent for the MPI_TYPE_RESIZED. Currently found using MPI_GET_EXTENT for just the whole block.
-         parameters%grid_size, & ! global dims
+         parameters_in%grid_size, & ! global dims
          block_dims, & ! local dims of the true block (no ghost points)
          block_begin - 1, & ! start index of the true block (no ghost points). Minus 1 to convert to 0 based indexing for MPI
-         parameters%block%matrix, & ! the block matrix
+         block_in%matrix, & ! the block matrix
          0, & ! offset in the file to start writing the true block
          elements_to_write) ! number of elements to write to the file
    end subroutine write_rank_type_blocks_to_file
@@ -250,19 +202,20 @@ contains
       real, dimension(array_size), intent(in) :: array
       real, dimension(buffer_size), intent(inout) :: buffer
 
-      integer :: ii, jj, global_index, buffer_global_index
+      integer :: global_index,  array_global_index, buffer_global_index
+      integer, dimension(ndims) :: local_dims, index
 
-      buffer_global_index = 0
+      local_dims = end - begin + 1
 
-      if(ndims == 2) then
-         do ii = begin(1), end(1)
-            do jj = begin(2), end(2)
-               global_index = IDX_XD(ndims, dims, [ii, jj])
-               buffer(buffer_start_index + buffer_global_index) = array(global_index)
-               buffer_global_index = buffer_global_index + 1
-            end do
-         end do
-      end if
+      do global_index = 1, product(local_dims)
+         index = IDX_XD_INV(ndims, local_dims, global_index)
+         index = begin + index - 1
+
+         array_global_index = IDX_XD(ndims, dims, index)
+         buffer_global_index = buffer_start_index + global_index-1
+
+         buffer(buffer_global_index) = array(array_global_index)
+      end do
 
    end subroutine array2buffer
 
@@ -273,19 +226,20 @@ contains
       real, dimension(array_size), intent(inout) :: array
       real, dimension(buffer_size), intent(in) :: buffer
 
-      integer :: ii, jj, global_index, buffer_global_index
+      integer :: global_index, array_global_index, buffer_global_index
+      integer, dimension(ndims) :: local_dims, index
 
-      buffer_global_index = 0
+      local_dims = end - begin + 1
 
-      if(ndims == 2) then
-         do ii = begin(1), end(1)
-            do jj = begin(2), end(2)
-               global_index = IDX_XD(ndims, dims, [ii, jj])
-               array(global_index) = buffer(buffer_start_index + buffer_global_index)
-               buffer_global_index = buffer_global_index + 1
-            end do
-         end do
-      end if
+      do global_index = 1, product(local_dims)
+         index = IDX_XD_INV(ndims, local_dims, global_index)
+         index = begin + index - 1
+
+         array_global_index = IDX_XD(ndims, dims, index)
+         buffer_global_index = buffer_start_index + global_index-1
+
+         array(array_global_index) = buffer(buffer_global_index)
+      end do
 
    end subroutine buffer2array
 

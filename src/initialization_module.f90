@@ -1,6 +1,6 @@
 module initialization_module
    use functions_module, only: FunctionPtrType, FunctionPair
-   use utility_functions_module, only: IDX_XD
+   use utility_functions_module, only: IDX_XD_INV
    implicit none
 
    private
@@ -18,23 +18,21 @@ contains
       real, dimension(product(dims)), intent(inout) :: buffer
       type(FunctionPtrType), intent(in) :: func
 
-      integer :: ii, jj, local_index
+      integer :: global_index
       integer, dimension(ndims) :: index, block_index
       real, dimension(ndims) :: point
       real :: func_val
 
-      do ii = 1, dims(1)
-         do jj = 1, dims(2)
-            index = [ii,jj]
-            block_index = begin_block + index - 1
-            local_index = IDX_XD(ndims, dims, index)
+      do global_index = 1, product(dims)
+         index = IDX_XD_INV(ndims, dims, global_index)
+         block_index = begin_block + index - 1
 
-            point = global_domain_begin + (block_index - 1) * dx
+         point = global_domain_begin + (block_index - 1) * dx
 
-            ! Write function value to buffer
-            call func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, block_index, dx, point, func_val)
-            buffer(local_index) = func_val
-         end do
+         ! Write function value to buffer
+         call func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, block_index, dx, point, func_val)
+         buffer(global_index) = func_val
+
       end do
 
    end subroutine write_function_to_block
@@ -48,29 +46,26 @@ contains
       real, dimension(product(dims)), intent(inout) :: buffer
       type(FunctionPtrType), intent(in) :: inital_func, boundary_func
 
-      integer :: ii, jj, local_index
+      integer :: global_index
       integer, dimension(ndims) :: index, block_index
       real, dimension(ndims) :: point
       real :: func_val
 
-      do ii = 1, dims(1)
-         do jj = 1, dims(2)
-            index = [ii,jj]
-            block_index = begin_block + index - 1
-            local_index = IDX_XD(ndims, dims, index)
+      do global_index = 1, product(dims)
+         index = IDX_XD_INV(ndims, dims, global_index)
+         block_index = begin_block + index - 1
 
-            point = global_domain_begin + (block_index - 1) * dx
+         point = global_domain_begin + (block_index - 1) * dx
 
-            ! Write initial condition
-            call inital_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
-               block_index, dx, point, func_val)
-            buffer(local_index) = func_val
+         ! Write initial condition
+         call inital_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
+            block_index, dx, point, func_val)
+         buffer(global_index) = func_val
 
-            ! Overwrite with boundary conditions
-            call boundary_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
-               block_index, dx, point, func_val)
-            buffer(local_index) = func_val
-         end do
+         ! Overwrite with boundary conditions
+         call boundary_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
+            block_index, dx, point, func_val)
+         buffer(global_index) = func_val
       end do
 
    end subroutine write_initial_condition_and_boundary

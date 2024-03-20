@@ -94,11 +94,11 @@ contains
       offset_begin(:) = 0
       offset_end(:) = 0
 
-      neighbor_array(:) = 3
+      neighbor_array(:) = 3 ! This is the number of neighbors in each dimension
 
       do global_index = 1, 3**ndims
          current_index = IDX_XD_INV(ndims, neighbor_array, global_index)
-         current_index = current_index - 2
+         current_index = current_index - 2 ! To go -1, 0, 1
 
          indices = coords + current_index
 
@@ -126,65 +126,78 @@ contains
       integer, dimension(:), intent(in) :: dims
       integer, dimension(:), intent(inout) :: send_array, recv_array
 
-      integer :: ii, jj, global_index
-      integer, dimension(2*ndims) :: send_indices, recv_indices
+      integer :: global_index, start_index, end_index
+      integer, dimension(2*ndims) :: send_indices, recv_indices ! begin and end for each dimension
+      integer, dimension(ndims) :: neighbor_array, current_index
+
+      neighbor_array(:) = 3
 
       send_array(:) = -10
       recv_array(:) = -10
 
       global_index = 1
 
-      if (ndims == 2) then
-         do ii = -1,1,1
-            call begin_end_send_neighbor_indices(ii, dims(1), send_indices(1), send_indices(ndims + 1))
-            call begin_end_recv_neighbor_indices(ii, dims(1), recv_indices(1), recv_indices(ndims + 1))
-            do jj = -1,1,1
-               call begin_end_send_neighbor_indices(jj, dims(2), send_indices(2), send_indices(ndims + 2))
-               call begin_end_recv_neighbor_indices(jj, dims(2), recv_indices(2), recv_indices(ndims + 2))
-               send_array(global_index:global_index + 2*ndims-1) = send_indices(:)
-               recv_array(global_index:global_index + 2*ndims-1) = recv_indices(:)
-               global_index = global_index + 2*ndims
-            end do
-         end do
-      end if
+      do global_index = 1, 3**ndims
+         current_index = IDX_XD_INV(ndims, neighbor_array, global_index)
+         current_index = current_index - 2 ! To go -1, 0, 1
+
+         start_index = (global_index-1) * 2*ndims + 1
+         end_index = global_index * 2*ndims
+
+         ! Send indices
+         call begin_end_neighbor_indices(ndims, dims, current_index, 0, send_indices(1:ndims), send_indices(ndims + 1:2*ndims))
+         ! Recv indices
+         call begin_end_neighbor_indices(ndims, dims, current_index, 1, recv_indices(1:ndims), recv_indices(ndims + 1:2*ndims))
+
+         send_array(start_index:end_index) = send_indices(:)
+         recv_array(start_index:end_index) = recv_indices(:)
+
+      end do
 
    end subroutine calculate_neighbor_indices
 
-   !> Calculate the indices of the elements that need to be sent to the neighbors from the block
-   subroutine begin_end_send_neighbor_indices(index, dim, begin, end)
-      integer, intent(in) :: index, dim
-      integer, intent(out):: begin, end
+   !> Calculate the indices of the elements that need to be sent to the neighbors from the block. Can take multiple dimensions. send_or_recv = 0 for send, 1 for recv
+   subroutine begin_end_neighbor_indices(ndims, dims, indices, send_or_recv, begin, end)
+      integer, intent(in) :: ndims, send_or_recv
+      integer, dimension(:), intent(in) :: dims, indices
+      integer, dimension(:), intent(out):: begin, end
 
-      if(index == -1) then
-         begin = 2
-         end = 2
-      else if(index == 0) then
-         begin = 2
-         end = dim - 1
-      else if(index == 1) then
-         begin = dim - 1
-         end = dim - 1
-      endif
+      integer :: current_dim
 
-   end subroutine begin_end_send_neighbor_indices
+      ! For the send indices
+      if(send_or_recv == 0) then
+         do current_dim = 1, ndims
+            if(indices(current_dim) == -1) then
+               begin(current_dim) = 2
+               end(current_dim) = 2
+            else if(indices(current_dim) == 0) then
+               begin(current_dim)  = 2
+               end(current_dim)  = dims(current_dim)  - 1
+            else if(indices(current_dim) == 1) then
+               begin(current_dim)  = dims(current_dim)  - 1
+               end(current_dim)  = dims(current_dim)  - 1
+            endif
+         end do
+      end if
 
-   !> Calculate the indices of the elements that need to be written to the block from the neighbors
-   subroutine begin_end_recv_neighbor_indices(index, dim, begin, end)
-      integer, intent(in) :: index, dim
-      integer, intent(out):: begin, end
+      ! For the recv indices
+      if(send_or_recv == 1) then
+         do current_dim = 1, ndims
+            if(indices(current_dim) == -1) then
+               begin(current_dim) = 1
+               end(current_dim) = 1
+            else if(indices(current_dim) == 0) then
+               begin(current_dim)  = 2
+               end(current_dim)  = dims(current_dim)  - 1
+            else if(indices(current_dim) == 1) then
+               begin(current_dim)  = dims(current_dim)
+               end(current_dim)  = dims(current_dim)
+            endif
+         end do
+      end if
 
-      if(index == -1) then
-         begin = 1
-         end = 1
-      else if(index == 0) then
-         begin = 2
-         end = dim - 1
-      else if(index == 1) then
-         begin = dim
-         end = dim
-      endif
 
-   end subroutine begin_end_recv_neighbor_indices
+   end subroutine begin_end_neighbor_indices
 
    !> Subroutine to get the neighbor indices out
    subroutine get_neighbor_indices(ndims, neighbor_index, indices, begin, end)
