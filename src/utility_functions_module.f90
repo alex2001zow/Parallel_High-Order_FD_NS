@@ -70,7 +70,7 @@ contains
       if(ndims > 1) then
          do_end = product(dims(2:ndims))
       else
-         do_end = dims(1)
+         do_end = 1
       end if
 
       write(iounit, *) title
@@ -102,7 +102,7 @@ contains
       if(ndims > 1) then
          do_end = product(dims(2:ndims))
       else
-         do_end = dims(1)
+         do_end = 1
       end if
 
       write(iounit, *) title

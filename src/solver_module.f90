@@ -7,7 +7,7 @@ module solver_module
    use rank_module, only: rank_type, communicate_step
    use comm_module, only: comm_type
    use block_module, only: block_type
-   use finite_difference_module, only: FDstencil_type, apply_FDstencil
+   use FD_module, only: FDstencil_type, apply_FDstencil
    use functions_module, only: FunctionPair, FunctionPtrType
 
    use mpi_wrapper_module, only: all_reduce_mpi_wrapper

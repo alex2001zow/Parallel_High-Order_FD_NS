@@ -34,7 +34,7 @@ LDFLAGS = -llapack -lblas -lm $(OPENMPFLAGS)
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
 
 # Files to compile
-FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 finite_difference_module.f90 rank_module.f90  solver_module.f90 main.f90
+FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 FD_module.f90 rank_module.f90 solver_module.f90 poisson_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
