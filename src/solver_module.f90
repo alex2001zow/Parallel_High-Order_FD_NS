@@ -7,7 +7,8 @@ module solver_module
    use rank_module, only: rank_type, communicate_step
    use comm_module, only: comm_type
    use block_module, only: block_type
-   use FD_module, only: FDstencil_type, apply_FDstencil
+   use FD_module, only: FDstencil_type, apply_FDstencil, &
+      create_finite_difference_stencil_from_order, deallocate_finite_difference_stencil
    use functions_module, only: FunctionPair, FunctionPtrType
 
    use mpi_wrapper_module, only: all_reduce_mpi_wrapper
@@ -26,16 +27,16 @@ module solver_module
 
 contains
 
-   function run_solver(parameters_in, comm_in, block_in, FDstencil_in, functions_in) result(result_array)
-      type (rank_type), target, intent(in) :: parameters_in
-      type (comm_type), target, intent(inout) :: comm_in
-      type (block_type), target, intent(inout) :: block_in
-      type (FDstencil_type), target, intent(in) :: FDstencil_in
-      type (FunctionPair), target, intent(in) :: functions_in
+   subroutine run_solver(parameters_in, comm_in, block_in, FDstencil_in, functions_in, result_array)
+      type(rank_type), target, intent(in) :: parameters_in
+      type(comm_type), target, intent(inout) :: comm_in
+      type(block_type), target, intent(inout) :: block_in
+      type(FDstencil_type), target, intent(in) :: FDstencil_in
+      type(FunctionPair), target, intent(in) :: functions_in
 
       integer :: iter, max_iter, converged
 
-      real, dimension(4) :: result_array
+      real, dimension(4), intent(out) :: result_array
       real, dimension(:), pointer :: ptr_temp_array, ptr_matrix
 
       real :: local_norm, global_norm, previous_norm, relative_norm, max_tol, norm_scaling
@@ -44,7 +45,7 @@ contains
 
       integer :: enum_solver
 
-      enum_solver = JSolver
+      enum_solver = GSSolver
 
       select case(enum_solver)
        case(GSSolver)
@@ -77,6 +78,8 @@ contains
       max_iter = 10000
 
       max_tol = 1.0e-6
+
+      !call sleeper_function(1)
 
       iter = 0
       do while (converged /= 1 .and. iter < max_iter)
@@ -130,14 +133,14 @@ contains
 
       result_array = [global_norm, relative_norm, real(converged,kind=8), real(iter,kind=8)]
 
-   end function run_solver
+   end subroutine run_solver
 
    !> Jacobi iteration with 2-norm
    function Jacobi_iteration(ndims, FDstencil, dims, global_begin, matrix, f_array, temp_array) result(norm)
       integer, intent(in) :: ndims
       integer, dimension(ndims) :: dims, global_begin
       real, dimension(product(dims)), intent(inout) :: matrix, f_array, temp_array
-      type (FDstencil_type), intent(in) :: FDstencil
+      type(FDstencil_type), intent(in) :: FDstencil
 
       integer, dimension(ndims) :: begin, end, local_dims, index, block_index
       integer :: global_index, local_index
@@ -183,7 +186,7 @@ contains
       integer, intent(in) :: ndims
       integer, dimension(ndims) :: dims, global_begin, global_domain_size
       real, dimension(product(dims)), intent(inout) :: matrix
-      type (FDstencil_type), intent(in) :: FDstencil
+      type(FDstencil_type), intent(in) :: FDstencil
       type(FunctionPtrType), intent(in) :: f_func
       real, dimension(ndims) :: global_domain_begin, global_domain_end
 
@@ -192,6 +195,11 @@ contains
       integer :: global_index, local_index
 
       real :: stencil_val, f_val, new_val, norm
+
+      type(FDstencil_type) :: FDstencil_from_indices_and_order
+      integer :: order
+
+      order = 3
 
       ! This is just for this stencil. This should be dynamic depending on the stencil
       begin = 2
@@ -211,16 +219,21 @@ contains
 
          point = global_domain_begin + (block_index - 1) * FDstencil%dx
 
-         stencil_val= apply_FDstencil(ndims, FDstencil, dims, matrix, index)
+         call create_finite_difference_stencil_from_order(ndims, FDstencil%num_derivatives,FDstencil%derivatives, &
+            FDstencil%dx, order, begin - 1, end +1, index, FDstencil_from_indices_and_order)
+
+         stencil_val= apply_FDstencil(ndims, FDstencil_from_indices_and_order, dims, matrix, index)
          call f_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
             block_index, FDstencil%dx, point, f_val)
 
          new_val = -stencil_val + f_val
-         new_val = new_val / FDstencil%center_coefficient
+         new_val = new_val / FDstencil_from_indices_and_order%center_coefficient
 
          matrix(local_index) = new_val
 
          norm = norm + new_val**2
+
+         call deallocate_finite_difference_stencil(FDstencil_from_indices_and_order)
 
       end do
 

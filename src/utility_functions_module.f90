@@ -67,6 +67,15 @@ contains
       integer :: do_end, global_index, d, start_index, end_index
       integer, dimension(ndims) :: indices
 
+      character(len=32) :: format_str   ! Length to be adjusted based on expected size
+      character(len=10) :: element_format
+      character(len=255) :: write_format
+
+      element_format = 'F10.3'  ! Format for each element
+      write(format_str, '(I32)') dims(1) * stride
+      write(write_format, '(*(A))') '(', trim(adjustl(format_str)), '(', element_format, '))'
+
+
       if(ndims > 1) then
          do_end = product(dims(2:ndims))
       else
@@ -78,7 +87,7 @@ contains
          indices = IDX_XD_INV(ndims, dims, global_index)
          start_index = (global_index - 1) * dims(1) * stride + 1
          end_index = global_index * dims(1) * stride
-         write(iounit, *) array(start_index:end_index)
+         write(iounit, write_format) array(start_index:end_index)
 
          do d = ndims, 3, -1
             if (indices(d) == dims(d)) then
@@ -99,6 +108,15 @@ contains
       integer :: do_end, global_index, d, start_index, end_index
       integer, dimension(ndims) :: indices
 
+      character(len=32) :: format_str    ! Length to be adjusted based on expected size
+      character(len=5) :: element_format
+      character(len=255) :: write_format
+
+      element_format = 'I6'  ! Format for each element, adjust width as needed
+      write(format_str, '(I32)') dims(1) * stride
+      write(write_format, '(*(A))') '(', trim(adjustl(format_str)), '(', element_format, '))'
+
+
       if(ndims > 1) then
          do_end = product(dims(2:ndims))
       else
@@ -110,7 +128,7 @@ contains
          indices = IDX_XD_INV(ndims, dims, global_index)
          start_index = (global_index - 1) * dims(1) * stride + 1
          end_index = global_index * dims(1) * stride
-         write(iounit, *) array(start_index:end_index)
+         write(iounit, write_format) array(start_index:end_index)
 
          do d = ndims, 3, -1
             if (indices(d) == dims(d)) then
@@ -179,7 +197,7 @@ contains
       end do
    end subroutine read_input_from_command_line
 
-   subroutine swap_pointers(ptr1, ptr2)
+   pure subroutine swap_pointers(ptr1, ptr2)
       real, dimension(:), pointer, intent(inout) :: ptr1, ptr2
       real, dimension(:), pointer :: temp_ptr
 
