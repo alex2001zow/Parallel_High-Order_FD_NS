@@ -34,7 +34,7 @@ subroutine run_simulation()
    allocate(domain_begin(ndims))
    allocate(domain_end(ndims))
 
-   grid_size = 16
+   grid_size = 8
    processor_dims = 1
    domain_begin = 0
    domain_end = 1

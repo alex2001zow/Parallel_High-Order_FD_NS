@@ -8,7 +8,7 @@ module FD_module
    type FDstencil_type
       integer :: num_derivatives
       integer, dimension(:), allocatable :: derivatives, derivatives_order, alphas, betas, stencil_sizes
-      real, dimension(:), allocatable :: dx, stencil_coefficients
+      real, dimension(:), allocatable :: dx, stencil_coefficients, combined_stencil_coefficients
       real :: center_coefficient
    end type FDstencil_type
 
@@ -56,7 +56,7 @@ contains
    end subroutine create_finite_difference_stencil_from_order
 
    !> Create a finite difference stencil
-   subroutine create_finite_difference_stencil(ndims, num_derivatives, derivatives, &
+   subroutine create_finite_difference_stencils(ndims, num_derivatives, derivatives, &
       dx, alphas, betas, FDstencil_type_output)
       integer, intent(in) :: ndims, num_derivatives
       integer, dimension(ndims * num_derivatives), intent(in) :: derivatives
@@ -66,6 +66,7 @@ contains
       real, dimension(:), allocatable :: temp_stencil_coefficients
       type(FDstencil_type), intent(out) :: FDstencil_type_output
 
+      integer :: num_elements_per_derivative, stencil_coefficients_index_start, stencil_coefficients_index_end
       integer :: global_index, index_start, index_end
       integer, dimension(ndims) :: derivative
 
@@ -85,8 +86,13 @@ contains
       FDstencil_type_output%derivatives_order = calculate_derivative_order(ndims, num_derivatives, derivatives, &
          FDstencil_type_output%stencil_sizes)
 
-      allocate(FDstencil_type_output%stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
-      FDstencil_type_output%stencil_coefficients(:) = 0.0
+      num_elements_per_derivative = product(FDstencil_type_output%stencil_sizes)
+
+      allocate(FDstencil_type_output%stencil_coefficients(num_elements_per_derivative*num_derivatives))
+      allocate(FDstencil_type_output%combined_stencil_coefficients(num_elements_per_derivative))
+      FDstencil_type_output%stencil_coefficients = 0.0
+      FDstencil_type_output%combined_stencil_coefficients = 0.0
+
 
       allocate(temp_stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
 
@@ -97,17 +103,50 @@ contains
          call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
             FDstencil_type_output%stencil_sizes, derivative, temp_stencil_coefficients)
 
-         FDstencil_type_output%stencil_coefficients = FDstencil_type_output%stencil_coefficients + &
-            temp_stencil_coefficients / product(dx**derivatives(index_start:index_end))
+         stencil_coefficients_index_start = (global_index-1)*num_elements_per_derivative + 1
+         stencil_coefficients_index_end = global_index*num_elements_per_derivative
+         FDstencil_type_output%stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
+            = temp_stencil_coefficients !/ product(dx**derivatives(index_start:index_end))
+         FDstencil_type_output%combined_stencil_coefficients = FDstencil_type_output%combined_stencil_coefficients + &
+            temp_stencil_coefficients
       end do
 
       !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1. Used to "normalize" the stencil.
-      FDstencil_type_output%center_coefficient = FDstencil_type_output%stencil_coefficients(IDX_XD(ndims, &
+      FDstencil_type_output%center_coefficient = FDstencil_type_output%combined_stencil_coefficients(IDX_XD(ndims, &
          FDstencil_type_output%stencil_sizes, alphas + 1))
 
       deallocate(temp_stencil_coefficients)
 
    end subroutine create_finite_difference_stencil
+
+   !> Create a finite difference stencil for a given value of alpha and beta
+   subroutine create_finite_difference_stencil_from_alpha_and_beta(ndims, num_derivatives, derivatives, alpha, beta, &
+      stencil_coefficients, combined_stencil_coefficients)
+
+      allocate(temp_stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
+
+      do global_index = 1, num_derivatives
+         index_start = (global_index-1)*ndims+1
+         index_end = global_index*ndims
+         derivative = derivatives(index_start:index_end)
+         call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
+            FDstencil_type_output%stencil_sizes, derivative, temp_stencil_coefficients)
+
+         stencil_coefficients_index_start = (global_index-1)*num_elements_per_derivative + 1
+         stencil_coefficients_index_end = global_index*num_elements_per_derivative
+         FDstencil_type_output%stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
+            = temp_stencil_coefficients !/ product(dx**derivatives(index_start:index_end))
+         FDstencil_type_output%combined_stencil_coefficients = FDstencil_type_output%combined_stencil_coefficients + &
+            temp_stencil_coefficients
+      end do
+
+      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1. Used to "normalize" the stencil.
+      FDstencil_type_output%center_coefficient = FDstencil_type_output%combined_stencil_coefficients(IDX_XD(ndims, &
+         FDstencil_type_output%stencil_sizes, alphas + 1))
+
+      deallocate(temp_stencil_coefficients)
+
+   end subroutine create_finite_difference_stencil_from_alpha_and_beta
 
    !> Destroy a finite difference stencil
    subroutine deallocate_finite_difference_stencil(FDstencil_type_input)
@@ -121,6 +160,9 @@ contains
       if(allocated(FDstencil_type_input%stencil_sizes)) deallocate(FDstencil_type_input%stencil_sizes)
 
       if(allocated(FDstencil_type_input%stencil_coefficients)) deallocate(FDstencil_type_input%stencil_coefficients)
+      if(allocated(FDstencil_type_input%combined_stencil_coefficients)) then
+         deallocate(FDstencil_type_input%combined_stencil_coefficients)
+      end if
 
    end subroutine deallocate_finite_difference_stencil
 
@@ -128,6 +170,8 @@ contains
    subroutine print_finite_difference_stencil(ndims, FDstencil_type_input, iounit)
       integer, intent(in) :: ndims, iounit
       type(FDstencil_type), intent(in) :: FDstencil_type_input
+
+      integer :: global_index, start_index, end_index
 
       ! Newlines for readability
       write(iounit, *)
@@ -143,8 +187,18 @@ contains
       write(iounit, *) "stencil_sizes: ", FDstencil_type_input%stencil_sizes
       write(iounit, *) "center_coefficient: ", FDstencil_type_input%center_coefficient
 
-      call print_real_array(ndims, FDstencil_type_input%stencil_sizes, FDstencil_type_input%stencil_coefficients, 1, &
-         "stencil_coefficients: ", iounit)
+      call print_real_array(ndims, FDstencil_type_input%stencil_sizes, FDstencil_type_input%combined_stencil_coefficients, 1, &
+         "combined_stencil_coefficients", iounit)
+
+      write(iounit, *) "stencil_coefficients: "
+      do global_index = 1, FDstencil_type_input%num_derivatives
+         start_index = (global_index-1)*product(FDstencil_type_input%stencil_sizes) + 1
+         end_index = global_index*product(FDstencil_type_input%stencil_sizes)
+
+         write(iounit, *) "Derivative: ", FDstencil_type_input%derivatives((global_index-1)*ndims+1:global_index*ndims)
+         call print_real_array(ndims, FDstencil_type_input%stencil_sizes, &
+            FDstencil_type_input%stencil_coefficients(start_index:end_index), 1, "", iounit)
+      end do
 
    end subroutine print_finite_difference_stencil
 
@@ -273,7 +327,7 @@ contains
    end function calculate_derivative_order
 
    !> subroutine to find the requested order from the derivatives
-   function find_stencil_size_from_order(ndims, num_derivatives, derivatives, order) result(stencil_sizes)
+   pure function find_stencil_size_from_order(ndims, num_derivatives, derivatives, order) result(stencil_sizes)
       integer, intent(in) :: ndims, num_derivatives, order
       integer, dimension(ndims*num_derivatives), intent(in) :: derivatives
 

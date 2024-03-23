@@ -6,7 +6,7 @@ module poisson_module
    use rank_module, only: rank_type, create_rank_type, deallocate_rank_type, print_rank_type, write_rank_type_blocks_to_file
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
       print_cart_comm_type, print_cartesian_grid
-   use FD_module, only: FDstencil_type, create_finite_difference_stencil, deallocate_finite_difference_stencil, &
+   use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, create_finite_difference_stencil_from_order
    use block_module, only: block_type, create_block_type, deallocate_block_type, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers
@@ -51,7 +51,7 @@ contains
 
       dx = abs((rank_params%domain_end - rank_params%domain_begin)) / (rank_params%grid_size - 1)
 
-      call create_finite_difference_stencil(rank_params%ndims, num_derivatives, derivatives, &
+      call create_finite_difference_stencils(rank_params%ndims, num_derivatives, derivatives, &
          dx, alphas, betas, FDstencil_params)
 
       call create_block_type(rank_params%ndims, comm_params, block_params)
@@ -65,7 +65,7 @@ contains
       result_array_with_timings(5) = MPI_WTIME()
 
       ! Run the solver
-      call run_solver(rank_params, comm_params, block_params, FDstencil_params, funcs_params, result_array_with_timings(1:4))
+      !call run_solver(rank_params, comm_params, block_params, FDstencil_params, funcs_params, result_array_with_timings(1:4))
 
       result_array_with_timings(6) = MPI_WTIME()
 
@@ -136,7 +136,7 @@ contains
       integer, dimension(2), intent(in) :: grid_size, processor_dims
       real, dimension(2), intent(in) :: domain_begin, domain_end
 
-      integer, parameter :: num_derivatives = 2
+      integer, parameter :: num_derivatives = 3
       integer, dimension(2*num_derivatives), parameter :: derivatives = [2,0,0,2]
       integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
 
