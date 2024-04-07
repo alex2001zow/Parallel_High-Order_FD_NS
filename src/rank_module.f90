@@ -1,12 +1,8 @@
 module rank_module
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
-   use functions_module, only: FunctionPair, set_function_pointers
    use mpi, only : MPI_REQUEST_NULL, MPI_DOUBLE_PRECISION, MPI_INT
-   use comm_module, only : comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, &
-      get_neighbor_indices
-   use block_module, only : block_type, create_block_type, deallocate_block_type, print_block_type
-   use FD_module, only : FDstencil_type, create_finite_difference_stencil, &
-      deallocate_finite_difference_stencil, print_finite_difference_stencil
+   use comm_module, only : comm_type, get_neighbor_indices
+   use block_module, only : block_type
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, get_cart_coords_mpi_wrapper, &
       cart_rank_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, &

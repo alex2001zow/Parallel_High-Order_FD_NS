@@ -6,163 +6,104 @@ module FD_module
    private
 
    type FDstencil_type
-      integer :: num_derivatives
-      integer, dimension(:), allocatable :: derivatives, derivatives_order, alphas, betas, stencil_sizes
+      integer :: num_derivatives, num_stencil_elements, combination_of_stencil_sizes, stencil_coefficients_size
+      integer, dimension(:), allocatable :: derivatives, derivatives_order, stencil_sizes
       real, dimension(:), allocatable :: dx, stencil_coefficients, combined_stencil_coefficients
-      real :: center_coefficient
    end type FDstencil_type
 
-   public :: FDstencil_type, create_finite_difference_stencil, deallocate_finite_difference_stencil,&
-      print_finite_difference_stencil, apply_FDstencil, create_finite_difference_stencil_from_order
+   public :: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil,&
+      print_finite_difference_stencil, apply_FDstencil, determine_alpha
 
 contains
 
-   !> subroutine to create a finite difference stencil from a given order. We also try to make a centered stencil first!
-   subroutine create_finite_difference_stencil_from_order(ndims, num_derivatives, derivatives, dx, order, &
-      begin, end, indices, FDstencil_type_output)
-      integer, intent(in) :: ndims, num_derivatives, order
-      integer, dimension(ndims * num_derivatives), intent(in) :: derivatives
-      real,  dimension(ndims), intent(in) :: dx
-      integer, dimension(ndims), intent(in) :: begin, end, indices
-
-      type(FDstencil_type), intent(out) :: FDstencil_type_output
-
-      integer, dimension(ndims) :: dist_to_begin, dist_to_end
-      integer, dimension(ndims) :: stencil_sizes, alphas, betas, adjusted_alphas, adjusted_betas, alpha_diff, beta_diff
-
-      ! Find the stencil size that kinda matches the order
-      stencil_sizes = find_stencil_size_from_order(ndims, num_derivatives, derivatives, order)
-
-      ! Try with a centered stencil first
-      alphas = (stencil_sizes + 1) / 2
-      betas = stencil_sizes - alphas
-
-      dist_to_begin = indices - begin
-      dist_to_end = end - indices
-
-      ! Adjust alphas and betas to stay within bounds
-      adjusted_alphas = max(min(alphas, dist_to_begin), 0)
-      adjusted_betas = max(min(betas, dist_to_end), 0)
-
-      ! If one side exceeds the bounds, add the excess to the other side
-      alpha_diff = alphas - adjusted_alphas
-      beta_diff = betas - adjusted_betas
-      adjusted_alphas = adjusted_alphas + beta_diff
-      adjusted_betas = adjusted_betas + alpha_diff
-
-      call create_finite_difference_stencil(ndims, num_derivatives, derivatives, dx, &
-         adjusted_alphas, adjusted_betas, FDstencil_type_output)
-
-   end subroutine create_finite_difference_stencil_from_order
-
    !> Create a finite difference stencil
-   subroutine create_finite_difference_stencils(ndims, num_derivatives, derivatives, &
-      dx, alphas, betas, FDstencil_type_output)
+   subroutine create_finite_difference_stencils(ndims, num_derivatives, derivatives, dx, stencil_sizes, FDstencil_type_output)
       integer, intent(in) :: ndims, num_derivatives
       integer, dimension(ndims * num_derivatives), intent(in) :: derivatives
-      integer, dimension(ndims), intent(in) :: alphas, betas
+      integer, dimension(ndims), intent(in) :: stencil_sizes
       real,  dimension(ndims), intent(in) :: dx
 
-      real, dimension(:), allocatable :: temp_stencil_coefficients
       type(FDstencil_type), intent(out) :: FDstencil_type_output
 
-      integer :: num_elements_per_derivative, stencil_coefficients_index_start, stencil_coefficients_index_end
-      integer :: global_index, index_start, index_end
-      integer, dimension(ndims) :: derivative
+      integer :: global_index, start_index, end_index
+      integer, dimension(ndims) :: current_index, alphas, betas
+
+      FDstencil_type_output%num_derivatives = num_derivatives
+      FDstencil_type_output%num_stencil_elements = product(stencil_sizes)
+      FDstencil_type_output%combination_of_stencil_sizes = product(stencil_sizes)
+      FDstencil_type_output%stencil_coefficients_size = FDstencil_type_output%combination_of_stencil_sizes*&
+         FDstencil_type_output%num_stencil_elements*num_derivatives
 
       allocate(FDstencil_type_output%derivatives(ndims * num_derivatives))
       allocate(FDstencil_type_output%derivatives_order(num_derivatives))
       allocate(FDstencil_type_output%dx(ndims))
-      allocate(FDstencil_type_output%alphas(ndims))
-      allocate(FDstencil_type_output%betas(ndims))
       allocate(FDstencil_type_output%stencil_sizes(ndims))
+      allocate(FDstencil_type_output%stencil_coefficients(FDstencil_type_output%stencil_coefficients_size))
 
-      FDstencil_type_output%num_derivatives = num_derivatives
       FDstencil_type_output%derivatives = derivatives
       FDstencil_type_output%dx = dx
-      FDstencil_type_output%alphas = alphas
-      FDstencil_type_output%betas = betas
-      FDstencil_type_output%stencil_sizes = alphas + betas + 1
+      FDstencil_type_output%stencil_sizes = stencil_sizes
       FDstencil_type_output%derivatives_order = calculate_derivative_order(ndims, num_derivatives, derivatives, &
          FDstencil_type_output%stencil_sizes)
 
-      num_elements_per_derivative = product(FDstencil_type_output%stencil_sizes)
+      do global_index = 1, FDstencil_type_output%combination_of_stencil_sizes
+         current_index = IDX_XD_INV(ndims, stencil_sizes, global_index)
+         current_index = current_index - 1
+         alphas = stencil_sizes - current_index - 1
+         betas = current_index
 
-      allocate(FDstencil_type_output%stencil_coefficients(num_elements_per_derivative*num_derivatives))
-      allocate(FDstencil_type_output%combined_stencil_coefficients(num_elements_per_derivative))
-      FDstencil_type_output%stencil_coefficients = 0.0
-      FDstencil_type_output%combined_stencil_coefficients = 0.0
+         start_index = (global_index-1)*FDstencil_type_output%num_stencil_elements*num_derivatives + 1
+         end_index = global_index*FDstencil_type_output%num_stencil_elements*num_derivatives
 
-
-      allocate(temp_stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
-
-      do global_index = 1, num_derivatives
-         index_start = (global_index-1)*ndims+1
-         index_end = global_index*ndims
-         derivative = derivatives(index_start:index_end)
-         call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
-            FDstencil_type_output%stencil_sizes, derivative, temp_stencil_coefficients)
-
-         stencil_coefficients_index_start = (global_index-1)*num_elements_per_derivative + 1
-         stencil_coefficients_index_end = global_index*num_elements_per_derivative
-         FDstencil_type_output%stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
-            = temp_stencil_coefficients !/ product(dx**derivatives(index_start:index_end))
-         FDstencil_type_output%combined_stencil_coefficients = FDstencil_type_output%combined_stencil_coefficients + &
-            temp_stencil_coefficients
+         call create_finite_difference_stencil_from_alpha_and_beta(ndims, num_derivatives, derivatives, alphas, betas, dx, &
+            FDstencil_type_output%stencil_coefficients(start_index:end_index))
       end do
 
-      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1. Used to "normalize" the stencil.
-      FDstencil_type_output%center_coefficient = FDstencil_type_output%combined_stencil_coefficients(IDX_XD(ndims, &
-         FDstencil_type_output%stencil_sizes, alphas + 1))
-
-      deallocate(temp_stencil_coefficients)
-
-   end subroutine create_finite_difference_stencil
+   end subroutine create_finite_difference_stencils
 
    !> Create a finite difference stencil for a given value of alpha and beta
-   subroutine create_finite_difference_stencil_from_alpha_and_beta(ndims, num_derivatives, derivatives, alpha, beta, &
-      stencil_coefficients, combined_stencil_coefficients)
+   subroutine create_finite_difference_stencil_from_alpha_and_beta(ndims, num_derivatives, derivatives, alphas, betas, dx, &
+      stencil_coefficients)
+      integer, intent(in) :: ndims, num_derivatives
+      integer, dimension(ndims * num_derivatives), intent(in) :: derivatives
+      integer, dimension(ndims), intent(in) :: alphas, betas
+      real, dimension(ndims), intent(in) :: dx
+      real, dimension(:), intent(inout) :: stencil_coefficients
 
-      allocate(temp_stencil_coefficients(product(FDstencil_type_output%stencil_sizes)))
+
+      integer :: global_index, index_start, index_end
+      integer :: stencil_coefficients_index_start, stencil_coefficients_index_end
+      integer, dimension(ndims) :: stencil_sizes, derivative
+      integer :: num_stencil_elements
+      real, dimension(product(alphas + 1 + betas)) :: temp_stencil_coefficients
+
+      stencil_sizes = alphas + 1 + betas
+      num_stencil_elements = product(stencil_sizes)
 
       do global_index = 1, num_derivatives
          index_start = (global_index-1)*ndims+1
          index_end = global_index*ndims
          derivative = derivatives(index_start:index_end)
-         call calculate_finite_difference_stencil(ndims, FDstencil_type_output%alphas, FDstencil_type_output%betas, &
-            FDstencil_type_output%stencil_sizes, derivative, temp_stencil_coefficients)
+         call calculate_finite_difference_stencil(ndims, alphas, betas, derivative, temp_stencil_coefficients)
 
-         stencil_coefficients_index_start = (global_index-1)*num_elements_per_derivative + 1
-         stencil_coefficients_index_end = global_index*num_elements_per_derivative
-         FDstencil_type_output%stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
-            = temp_stencil_coefficients !/ product(dx**derivatives(index_start:index_end))
-         FDstencil_type_output%combined_stencil_coefficients = FDstencil_type_output%combined_stencil_coefficients + &
-            temp_stencil_coefficients
+         stencil_coefficients_index_start = (global_index-1)*num_stencil_elements + 1
+         stencil_coefficients_index_end = global_index*num_stencil_elements
+         stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
+            = temp_stencil_coefficients / product(dx**derivative)
       end do
-
-      !> The center coefficient is the coefficient of the central point of the stencil. Found at alphas + 1. Used to "normalize" the stencil.
-      FDstencil_type_output%center_coefficient = FDstencil_type_output%combined_stencil_coefficients(IDX_XD(ndims, &
-         FDstencil_type_output%stencil_sizes, alphas + 1))
-
-      deallocate(temp_stencil_coefficients)
 
    end subroutine create_finite_difference_stencil_from_alpha_and_beta
 
    !> Destroy a finite difference stencil
-   subroutine deallocate_finite_difference_stencil(FDstencil_type_input)
+   pure subroutine deallocate_finite_difference_stencil(FDstencil_type_input)
       type(FDstencil_type), intent(inout) :: FDstencil_type_input
 
       if(allocated(FDstencil_type_input%derivatives)) deallocate(FDstencil_type_input%derivatives)
       if(allocated(FDstencil_type_input%derivatives_order)) deallocate(FDstencil_type_input%derivatives_order)
       if(allocated(FDstencil_type_input%dx)) deallocate(FDstencil_type_input%dx)
-      if(allocated(FDstencil_type_input%alphas)) deallocate(FDstencil_type_input%alphas)
-      if(allocated(FDstencil_type_input%betas)) deallocate(FDstencil_type_input%betas)
       if(allocated(FDstencil_type_input%stencil_sizes)) deallocate(FDstencil_type_input%stencil_sizes)
 
       if(allocated(FDstencil_type_input%stencil_coefficients)) deallocate(FDstencil_type_input%stencil_coefficients)
-      if(allocated(FDstencil_type_input%combined_stencil_coefficients)) then
-         deallocate(FDstencil_type_input%combined_stencil_coefficients)
-      end if
 
    end subroutine deallocate_finite_difference_stencil
 
@@ -171,7 +112,14 @@ contains
       integer, intent(in) :: ndims, iounit
       type(FDstencil_type), intent(in) :: FDstencil_type_input
 
-      integer :: global_index, start_index, end_index
+      integer :: combination_of_stencil_sizes, num_stencil_elements, num_derivatives
+      integer :: alpha_beta_global_index, alpha_beta_start_index, alpha_beta_end_index
+      integer :: derivative_global_index, derivative_start_index, derivative_end_index
+      integer, dimension(ndims) :: current_index, alphas, betas
+
+      combination_of_stencil_sizes = FDstencil_type_input%combination_of_stencil_sizes
+      num_stencil_elements = FDstencil_type_input%num_stencil_elements
+      num_derivatives = FDstencil_type_input%num_derivatives
 
       ! Newlines for readability
       write(iounit, *)
@@ -182,40 +130,51 @@ contains
       write(iounit, *) "derivatives: ", FDstencil_type_input%derivatives
       write(iounit, *) "derivatives_order: ", FDstencil_type_input%derivatives_order
       write(iounit, *) "dx: ", FDstencil_type_input%dx
-      write(iounit, *) "alphas: ", FDstencil_type_input%alphas
-      write(iounit, *) "betas: ", FDstencil_type_input%betas
       write(iounit, *) "stencil_sizes: ", FDstencil_type_input%stencil_sizes
-      write(iounit, *) "center_coefficient: ", FDstencil_type_input%center_coefficient
-
-      call print_real_array(ndims, FDstencil_type_input%stencil_sizes, FDstencil_type_input%combined_stencil_coefficients, 1, &
-         "combined_stencil_coefficients", iounit)
 
       write(iounit, *) "stencil_coefficients: "
-      do global_index = 1, FDstencil_type_input%num_derivatives
-         start_index = (global_index-1)*product(FDstencil_type_input%stencil_sizes) + 1
-         end_index = global_index*product(FDstencil_type_input%stencil_sizes)
+      do alpha_beta_global_index = 1, combination_of_stencil_sizes
+         current_index = IDX_XD_INV(ndims, FDstencil_type_input%stencil_sizes, alpha_beta_global_index)
+         current_index = current_index - 1
+         alphas = FDstencil_type_input%stencil_sizes - current_index - 1
+         betas = current_index
 
-         write(iounit, *) "Derivative: ", FDstencil_type_input%derivatives((global_index-1)*ndims+1:global_index*ndims)
-         call print_real_array(ndims, FDstencil_type_input%stencil_sizes, &
-            FDstencil_type_input%stencil_coefficients(start_index:end_index), 1, "", iounit)
+         alpha_beta_start_index = (alpha_beta_global_index-1)*num_stencil_elements*num_derivatives + 1
+         alpha_beta_end_index = alpha_beta_global_index*num_stencil_elements*num_derivatives
+
+         write(iounit, *) "Alpha and Beta: ", alphas, betas
+         do derivative_global_index = 1, num_derivatives
+
+            derivative_start_index = (derivative_global_index-1)*num_stencil_elements
+            derivative_end_index = derivative_global_index*num_stencil_elements-1
+
+            write(iounit, *) "Derivative: ", FDstencil_type_input%derivatives(&
+               (derivative_global_index-1)*ndims+1:derivative_global_index*ndims)
+            call print_real_array(ndims, FDstencil_type_input%stencil_sizes, &
+               FDstencil_type_input%stencil_coefficients(&
+               (alpha_beta_start_index+derivative_start_index):(alpha_beta_start_index+derivative_end_index)), 1, "", iounit)
+         end do
       end do
 
    end subroutine print_finite_difference_stencil
 
    !> Calculate the finite difference stencil coefficients.
    !! sum_{n=-alpha_1}^{beta_1} sum_{m=-alpha_2}^{beta_2} a_nm * A_ij
-   subroutine calculate_finite_difference_stencil(ndims, alphas, betas, stencil_sizes, derivative, stencil_coefficients)
+   subroutine calculate_finite_difference_stencil(ndims, alphas, betas, derivative, stencil_coefficients)
       integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: alphas, betas, derivative
 
-      integer, dimension(ndims), intent(in) :: alphas, betas, stencil_sizes, derivative
+      integer, dimension(ndims) :: stencil_sizes
 
-      real, dimension(product(stencil_sizes)), intent(out) :: stencil_coefficients
+      real, dimension(product(alphas + 1 + betas)), intent(out) :: stencil_coefficients
 
       integer, dimension(ndims) :: index
       integer :: global_index, start_index, end_index, num_equations, num_taylor_elements, num_rhs, info
-      integer, dimension(product(stencil_sizes)) :: ipiv
-      real, dimension(product(stencil_sizes)) :: taylor_coefficients
-      real, dimension((product(stencil_sizes)**(2*ndims))) :: coefficient_matrix
+      integer, dimension(product(alphas + 1 + betas)) :: ipiv
+      real, dimension(product(alphas + 1 + betas)) :: taylor_coefficients
+      real, dimension((product(alphas + 1 + betas)**(2*ndims))) :: coefficient_matrix
+
+      stencil_sizes = alphas + 1 + betas
 
       info = 0
 
@@ -278,12 +237,11 @@ contains
    end subroutine calculate_taylor_coefficients
 
    !> Apply the finite difference stencil to a matrix
-   pure function apply_FDstencil(ndims, FDstencil_type_input, dims, matrix, index) result(val)
+   pure function apply_FDstencil(ndims, stencil_sizes, alphas, coefficients, dims, index, matrix) result(val)
       integer, intent(in) :: ndims
-      type(FDstencil_type), intent(in) :: FDstencil_type_input
-      integer, dimension(ndims), intent(in) :: dims
+      integer, dimension(ndims), intent(in) :: stencil_sizes, alphas, dims, index
+      real, dimension(product(stencil_sizes)), intent(in) :: coefficients
       real, dimension(product(dims)), intent(in) :: matrix
-      integer, dimension(ndims), intent(in) :: index
 
       real :: stencil_val, matrix_val, val
       integer :: global_index, block_index
@@ -292,23 +250,37 @@ contains
 
       val = 0.0
 
-      do global_index = 1, product(FDstencil_type_input%stencil_sizes)
-         index_stencil = IDX_XD_INV(ndims, FDstencil_type_input%stencil_sizes, global_index)
-         index_stencil = index_stencil - FDstencil_type_input%alphas - 1
+      ! Run through the stencil coefficients including the center coefficient
+      do global_index = 1, product(stencil_sizes)
+         index_stencil = IDX_XD_INV(ndims, stencil_sizes, global_index)
+         index_stencil = index_stencil - alphas - 1
          block_index = IDX_XD(ndims, dims, index + index_stencil)
 
-         stencil_val = FDstencil_type_input%stencil_coefficients(global_index)
+         stencil_val = coefficients(global_index)
          matrix_val = matrix(block_index)
+
+         !print *, "Stencil value: ", stencil_val, "Matrix value: ", matrix_val, "Product: ", stencil_val * matrix_val
 
          val = val + stencil_val * matrix_val
       end do
 
-      ! Subtract the center coefficient
-      val = val - FDstencil_type_input%center_coefficient * matrix(IDX_XD(ndims, dims, index))
-
    end function apply_FDstencil
 
-   !> subroutine to calculate the order of the derivative
+   !> Determine alpha and beta from a matrix index
+   pure function determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index) result(alpha)
+      integer, intent(in) :: ndims
+      integer, dimension(ndims), intent(in) :: stencil_sizes, matrix_begin, matrix_end, matrix_index
+      integer, dimension(ndims) :: alpha
+
+      integer, dimension(ndims) :: stencil_center
+
+      stencil_center = stencil_sizes / 2
+      alpha = max(0, matrix_index - stencil_center)
+      alpha = min(alpha, stencil_center)
+
+   end function determine_alpha
+
+   !> Subroutine to calculate the order of the derivative
    pure function calculate_derivative_order(ndims, num_derivatives, derivatives, stencil_sizes) result(order)
       integer, intent(in) :: ndims, num_derivatives
       integer, dimension(ndims*num_derivatives), intent(in) :: derivatives
@@ -325,26 +297,5 @@ contains
       end do
 
    end function calculate_derivative_order
-
-   !> subroutine to find the requested order from the derivatives
-   pure function find_stencil_size_from_order(ndims, num_derivatives, derivatives, order) result(stencil_sizes)
-      integer, intent(in) :: ndims, num_derivatives, order
-      integer, dimension(ndims*num_derivatives), intent(in) :: derivatives
-
-      integer, dimension(ndims) :: stencil_sizes
-
-      integer :: global_index, index_start, index_end
-
-      stencil_sizes = 0
-
-      do global_index = 1, num_derivatives
-         index_start = (global_index-1)*ndims+1
-         index_end = global_index*ndims
-         stencil_sizes = max(stencil_sizes, derivatives(index_start:index_end) + order)
-      end do
-
-      stencil_sizes = stencil_sizes - 1
-
-   end function find_stencil_size_from_order
 
 end module FD_module

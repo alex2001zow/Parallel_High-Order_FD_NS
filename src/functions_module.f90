@@ -4,7 +4,7 @@ implicit none
 private
 
 abstract interface
-   subroutine FunctionInterface(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   pure subroutine FunctionInterface(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
       real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
       integer, dimension(ndims), intent(in) :: domain_size, domain_indices
@@ -29,7 +29,7 @@ public :: FunctionPtrType, FunctionPair, set_function_pointers
 
 contains
 
-subroutine set_function_pointers(initial_func, boundary_func, rhs_func, analytical_func, funcPair)
+pure subroutine set_function_pointers(initial_func, boundary_func, rhs_func, analytical_func, funcPair)
    !type(FunctionPtrType), intent(in) :: initial_func, boundary_func, rhs_func, analytical_func
    procedure(FunctionInterface) :: initial_func, boundary_func, rhs_func, analytical_func
    type(FunctionPair), intent(out) :: funcPair

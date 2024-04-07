@@ -27,7 +27,7 @@ subroutine run_simulation()
 
    ! MPI-setup. We can also read input from the command line
    ! call read_input_from_command_line(ndims, grid_size, processor_dim)
-   ndims = 2
+   ndims = 1
 
    allocate(grid_size(ndims))
    allocate(processor_dims(ndims))
@@ -39,8 +39,8 @@ subroutine run_simulation()
    domain_begin = 0
    domain_end = 1
 
-   !call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
-   call Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
+   call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
+   !call Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
    !call Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
 
    ! Finalize MPI

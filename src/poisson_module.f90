@@ -7,7 +7,7 @@ module poisson_module
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
       print_cart_comm_type, print_cartesian_grid
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
-      print_finite_difference_stencil, create_finite_difference_stencil_from_order
+      print_finite_difference_stencil
    use block_module, only: block_type, create_block_type, deallocate_block_type, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers
 
@@ -23,13 +23,13 @@ contains
 
    !> The analytical solution of the 2D Poisson equation
    subroutine Poission_analytical_wrapper(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      num_derivatives, derivatives, alphas, betas)
+      num_derivatives, derivatives, stencil_sizes)
       integer, intent(in) :: ndims, rank, world_size
       integer, dimension(:), intent(in) :: grid_size, processor_dims
       real, dimension(:), intent(in) :: domain_begin, domain_end
 
       integer, intent(in) :: num_derivatives
-      integer, dimension(:), intent(in) :: derivatives, alphas, betas
+      integer, dimension(:), intent(in) :: derivatives, stencil_sizes
 
       real, dimension(ndims) :: dx
       integer :: iounit
@@ -52,7 +52,7 @@ contains
       dx = abs((rank_params%domain_end - rank_params%domain_begin)) / (rank_params%grid_size - 1)
 
       call create_finite_difference_stencils(rank_params%ndims, num_derivatives, derivatives, &
-         dx, alphas, betas, FDstencil_params)
+         dx, stencil_sizes, FDstencil_params)
 
       call create_block_type(rank_params%ndims, comm_params, block_params)
 
@@ -65,7 +65,7 @@ contains
       result_array_with_timings(5) = MPI_WTIME()
 
       ! Run the solver
-      !call run_solver(rank_params, comm_params, block_params, FDstencil_params, funcs_params, result_array_with_timings(1:4))
+      call run_solver(rank_params, comm_params, block_params, FDstencil_params, funcs_params, result_array_with_timings(1:4))
 
       result_array_with_timings(6) = MPI_WTIME()
 
@@ -123,10 +123,10 @@ contains
 
       integer, parameter :: num_derivatives = 1
       integer, dimension(num_derivatives), parameter :: derivatives = [2]
-      integer, dimension(1), parameter :: alphas = [1], betas = [1]
+      integer, dimension(1), parameter :: stencil_sizes = [3]
 
       call Poission_analytical_wrapper(1, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, alphas, betas)
+         num_derivatives, derivatives, stencil_sizes)
 
    end subroutine Poission_1D_analytical
 
@@ -136,12 +136,12 @@ contains
       integer, dimension(2), intent(in) :: grid_size, processor_dims
       real, dimension(2), intent(in) :: domain_begin, domain_end
 
-      integer, parameter :: num_derivatives = 3
+      integer, parameter :: num_derivatives = 2
       integer, dimension(2*num_derivatives), parameter :: derivatives = [2,0,0,2]
-      integer, dimension(2), parameter :: alphas = [1,1], betas = [1,1]
+      integer, dimension(2), parameter :: stencil_sizes = [3,3]
 
       call Poission_analytical_wrapper(2, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, alphas, betas)
+         num_derivatives, derivatives, stencil_sizes)
 
    end subroutine Poission_2D_analytical
 
@@ -153,16 +153,16 @@ contains
 
       integer, parameter :: num_derivatives = 3
       integer, dimension(3*num_derivatives), parameter :: derivatives = [2,0,0,0,2,0,0,0,2]
-      integer, dimension(3), parameter :: alphas = [1,1,1], betas = [1,1,1]
+      integer, dimension(3), parameter :: stencil_sizes = [3,3,3]
 
       call Poission_analytical_wrapper(3, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, alphas, betas)
+         num_derivatives, derivatives, stencil_sizes)
 
    end subroutine Poission_3D_analytical
 
    !!!! POISSON EQUATION FUNCTIONS !!!!
 
-   subroutine initial_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   pure subroutine initial_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
       real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
       integer, dimension(ndims), intent(in) :: domain_size, domain_indices
@@ -173,7 +173,7 @@ contains
 
    end subroutine initial_poisson
 
-   subroutine boundary_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   pure subroutine boundary_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
       real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
       integer, dimension(ndims), intent(in) :: domain_size, domain_indices
@@ -197,7 +197,7 @@ contains
 
    end subroutine boundary_poisson
 
-   subroutine u_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   pure subroutine u_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
       real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
       integer, dimension(ndims), intent(in) :: domain_size, domain_indices
@@ -208,7 +208,7 @@ contains
 
    end subroutine u_analytical_poisson
 
-   subroutine f_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
+   pure subroutine f_analytical_poisson(ndims, domain_start, domain_end, domain_size, domain_indices, dx, point, func_val)
       integer, intent(in) :: ndims
       real, dimension(ndims), intent(in) :: domain_start, domain_end, dx, point
       integer, dimension(ndims), intent(in) :: domain_size, domain_indices
