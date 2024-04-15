@@ -22,6 +22,7 @@ type :: FunctionPair
    type(FunctionPtrType) :: initial_condition_func
    type(FunctionPtrType) :: boundary_condition_func
    type(FunctionPtrType) :: rhs_func
+   type(FunctionPtrType) :: rhs_derivative_func
    type(FunctionPtrType) :: analytical_func
 end type FunctionPair
 
@@ -29,15 +30,14 @@ public :: FunctionPtrType, FunctionPair, set_function_pointers
 
 contains
 
-pure subroutine set_function_pointers(initial_func, boundary_func, rhs_func, analytical_func, funcPair)
-   !type(FunctionPtrType), intent(in) :: initial_func, boundary_func, rhs_func, analytical_func
-   procedure(FunctionInterface) :: initial_func, boundary_func, rhs_func, analytical_func
-   type(FunctionPair), intent(out) :: funcPair
+pure subroutine set_function_pointers(initial_func, boundary_func, rhs_func, rhs_derivative_func, analytical_func, funcPair)
+   procedure(FunctionInterface) :: initial_func, boundary_func, rhs_func, rhs_derivative_func, analytical_func
+   type(FunctionPair), intent(inout) :: funcPair
 
-   ! Initialize the function pointers to null
    funcPair%initial_condition_func%func => initial_func
    funcPair%boundary_condition_func%func => boundary_func
    funcPair%rhs_func%func => rhs_func
+   funcPair%rhs_derivative_func%func => rhs_derivative_func
    funcPair%analytical_func%func => analytical_func
 
 end subroutine set_function_pointers

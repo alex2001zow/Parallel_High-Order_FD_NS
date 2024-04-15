@@ -15,6 +15,7 @@ EXEC_DIR = exec
 
 # Debug flags
 DEBUGFLAGS = -g -fbacktrace -ffpe-trap=zero,overflow,underflow,invalid -fbounds-check -O0
+
 # Release flags
 RELEASEFLAGS = -O3 -flto -fopt-info-vec-missed -fopt-info-loop-all
 

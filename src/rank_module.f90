@@ -48,7 +48,7 @@ contains
    end subroutine create_rank_type
 
    !> Routine to allocate the rank_type
-   subroutine allocate_rank_type(parameters)
+   pure subroutine allocate_rank_type(parameters)
       type(rank_type), intent(inout) :: parameters
 
       allocate(parameters%grid_size(parameters%ndims))
@@ -59,7 +59,7 @@ contains
    end subroutine allocate_rank_type
 
    !> Routine to deallocate the rank_type
-   subroutine deallocate_rank_type(parameters)
+   pure subroutine deallocate_rank_type(parameters)
       type(rank_type), intent(inout) :: parameters
 
       if (allocated(parameters%grid_size)) deallocate(parameters%grid_size)
@@ -88,7 +88,7 @@ contains
 
    end subroutine print_rank_type
 
-   !> Routine to write the block data to a file
+   !> Routine to write the block data to a file. This is ugly and should be refactored.
    subroutine write_rank_type_blocks_to_file(parameters_in, comm_in, block_in, filename_system_solution_in)
       character(255), intent(in) :: filename_system_solution_in
       type(rank_type), intent(in) :: parameters_in
@@ -131,7 +131,7 @@ contains
    end subroutine write_rank_type_blocks_to_file
 
    !> Routine to communicate with the neighbors
-   !! We could edit this routine to initate the recieve first then write to the send buffer, initate send and then check if recv then write to buffer then wait for send and done.
+   !! We could edit this routine to initate the recieve first then write to the send buffer, initate send and then check if recv then write to buffer then wait for send and done. We could also parallize writing to the buffer and reading from it.
    subroutine communicate_step(ndims, comm, block, matrix)
       integer, intent(in) :: ndims
       type(comm_type), intent(inout) :: comm
@@ -192,7 +192,7 @@ contains
    end subroutine sendrecv_elements_from_neighbors
 
    !> Routine to write data from the array to the buffer
-   subroutine array2buffer(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
+   pure subroutine array2buffer(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
       integer, intent(in) :: ndims, buffer_start_index, array_size, buffer_size
       integer, dimension(ndims), intent(in) :: dims, begin, end
       real, dimension(array_size), intent(in) :: array
@@ -204,10 +204,10 @@ contains
       local_dims = end - begin + 1
 
       do global_index = 1, product(local_dims)
-         index = IDX_XD_INV(ndims, local_dims, global_index)
+         call IDX_XD_INV(ndims, local_dims, global_index, index)
          index = begin + index - 1
 
-         array_global_index = IDX_XD(ndims, dims, index)
+         call IDX_XD(ndims, dims, index, array_global_index)
          buffer_global_index = buffer_start_index + global_index-1
 
          buffer(buffer_global_index) = array(array_global_index)
@@ -216,7 +216,7 @@ contains
    end subroutine array2buffer
 
    !> Routine to write data from the buffer to the array
-   subroutine buffer2array(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
+   pure subroutine buffer2array(ndims, dims, begin, end, array, array_size, buffer, buffer_size, buffer_start_index)
       integer, intent(in) :: ndims, buffer_start_index, array_size, buffer_size
       integer, dimension(ndims), intent(in) :: dims, begin, end
       real, dimension(array_size), intent(inout) :: array
@@ -228,10 +228,10 @@ contains
       local_dims = end - begin + 1
 
       do global_index = 1, product(local_dims)
-         index = IDX_XD_INV(ndims, local_dims, global_index)
+         call IDX_XD_INV(ndims, local_dims, global_index, index)
          index = begin + index - 1
 
-         array_global_index = IDX_XD(ndims, dims, index)
+         call IDX_XD(ndims, dims, index, array_global_index)
          buffer_global_index = buffer_start_index + global_index-1
 
          array(array_global_index) = buffer(buffer_global_index)

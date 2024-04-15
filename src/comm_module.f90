@@ -97,7 +97,7 @@ contains
       neighbor_array(:) = 3 ! This is the number of neighbors in each dimension
 
       do global_index = 1, 3**ndims
-         current_index = IDX_XD_INV(ndims, neighbor_array, global_index)
+         call IDX_XD_INV(ndims, neighbor_array, global_index, current_index)
          current_index = current_index - 2 ! To go -1, 0, 1
 
          indices = coords + current_index
@@ -121,7 +121,7 @@ contains
    end subroutine get_cart_neighbors
 
    !> Calculate the indices of the elements that need to be sent to the neighbors
-   subroutine calculate_neighbor_indices(ndims, dims, send_array, recv_array)
+   pure subroutine calculate_neighbor_indices(ndims, dims, send_array, recv_array)
       integer, intent(in) :: ndims
       integer, dimension(:), intent(in) :: dims
       integer, dimension(:), intent(inout) :: send_array, recv_array
@@ -138,7 +138,7 @@ contains
       global_index = 1
 
       do global_index = 1, 3**ndims
-         current_index = IDX_XD_INV(ndims, neighbor_array, global_index)
+         call IDX_XD_INV(ndims, neighbor_array, global_index, current_index)
          current_index = current_index - 2 ! To go -1, 0, 1
 
          start_index = (global_index-1) * 2*ndims + 1
@@ -157,7 +157,7 @@ contains
    end subroutine calculate_neighbor_indices
 
    !> Calculate the indices of the elements that need to be sent to the neighbors from the block. Can take multiple dimensions. send_or_recv = 0 for send, 1 for recv
-   subroutine begin_end_neighbor_indices(ndims, dims, indices, send_or_recv, begin, end)
+   pure subroutine begin_end_neighbor_indices(ndims, dims, indices, send_or_recv, begin, end)
       integer, intent(in) :: ndims, send_or_recv
       integer, dimension(:), intent(in) :: dims, indices
       integer, dimension(:), intent(out):: begin, end
@@ -200,7 +200,7 @@ contains
    end subroutine begin_end_neighbor_indices
 
    !> Subroutine to get the neighbor indices out
-   subroutine get_neighbor_indices(ndims, neighbor_index, indices, begin, end)
+   pure subroutine get_neighbor_indices(ndims, neighbor_index, indices, begin, end)
       integer, intent(in) :: ndims, neighbor_index
       integer, dimension(:), intent(in) :: indices
       integer, dimension(:), intent(out) :: begin, end
@@ -215,7 +215,7 @@ contains
    end subroutine get_neighbor_indices
 
    !> Subroutine to calculate the number of elements that need to be sent to the neighbors
-   subroutine calculate_number_of_elements_to_send(ndims, comm_inout)
+   pure subroutine calculate_number_of_elements_to_send(ndims, comm_inout)
       integer, intent(in) :: ndims
       type(comm_type), intent(inout) :: comm_inout
 
@@ -230,7 +230,7 @@ contains
    end subroutine calculate_number_of_elements_to_send
 
    !> Allocate a comm_type object
-   subroutine allocate_cart_comm_type(ndims, comm)
+   pure subroutine allocate_cart_comm_type(ndims, comm)
       integer, intent(in) :: ndims
       type(comm_type), intent(inout) :: comm
 

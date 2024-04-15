@@ -20,7 +20,7 @@ module block_module
 contains
 
    !> Subroutine to allocate the block structure.
-   subroutine create_block_type(ndims, comm, block_output)
+   pure subroutine create_block_type(ndims, comm, block_output)
       integer, intent(in) :: ndims
       type(comm_type), intent(in) :: comm
       type(block_type), intent(out) :: block_output
@@ -42,7 +42,7 @@ contains
    end subroutine create_block_type
 
    !> Subroutine to allocate the neighbor sendrecv array.
-   subroutine allocate_neighbor_sendrecv_array(comm, block_inout)
+   pure subroutine allocate_neighbor_sendrecv_array(comm, block_inout)
       type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: block_inout
 
@@ -73,7 +73,7 @@ contains
    end subroutine allocate_neighbor_sendrecv_array
 
    !> Subroutine to deallocate the block structure.
-   subroutine deallocate_block_type(block_input)
+   pure subroutine deallocate_block_type(block_input)
       type(block_type), intent(inout) :: block_input
 
       if(allocated(block_input%size)) deallocate(block_input%size)

@@ -10,7 +10,7 @@ module initialization_module
 contains
 
    !> Write function values to a block
-   subroutine write_function_to_block(ndims, global_domain_begin, global_domain_end, global_domain_size, &
+   pure subroutine write_function_to_block(ndims, global_domain_begin, global_domain_end, global_domain_size, &
       begin_block, dims, buffer, dx, func)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) ::  global_domain_size, begin_block, dims
@@ -24,7 +24,7 @@ contains
       real :: func_val
 
       do global_index = 1, product(dims)
-         index = IDX_XD_INV(ndims, dims, global_index)
+         call IDX_XD_INV(ndims, dims, global_index, index)
          block_index = begin_block + index - 1
 
          point = global_domain_begin + (block_index - 1) * dx
@@ -38,7 +38,7 @@ contains
    end subroutine write_function_to_block
 
    !> Initialize the buffer with the inital condition and the boundary condition
-   subroutine write_initial_condition_and_boundary(ndims, global_domain_begin, global_domain_end, global_domain_size, &
+   pure subroutine write_initial_condition_and_boundary(ndims, global_domain_begin, global_domain_end, global_domain_size, &
       begin_block, dims, buffer, dx, inital_func, boundary_func)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) ::  global_domain_size, begin_block, dims
@@ -52,7 +52,7 @@ contains
       real :: func_val
 
       do global_index = 1, product(dims)
-         index = IDX_XD_INV(ndims, dims, global_index)
+         call IDX_XD_INV(ndims, dims, global_index, index)
          block_index = begin_block + index - 1
 
          point = global_domain_begin + (block_index - 1) * dx

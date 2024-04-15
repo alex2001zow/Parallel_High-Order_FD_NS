@@ -81,7 +81,6 @@ contains
       real, dimension(:), intent(inout) :: send_array, recv_array
       integer, intent(out) :: send_request_8, recv_request_8
 
-      ! Declaration section remains the same
       call isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
       call irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
 

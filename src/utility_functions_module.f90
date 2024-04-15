@@ -10,52 +10,52 @@ module utility_functions_module
 contains
 
    !> Global index from ndims, dims, indices.
-   pure function IDX_XD(ndims, dims, indices) result(global_index)
+   pure subroutine IDX_XD(ndims, dims, indices, global_index)
       integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: dims, indices
-      integer :: global_index
-      integer :: d, product
+      integer, dimension(ndims), intent(in) :: dims, indices
+      integer , intent(inout) :: global_index
+
+      integer :: d, stride
 
       global_index = indices(ndims) - 1
-      product = 1
+      stride = 1
 
-      do d = ndims-1, 1, -1
-         product = product * dims(d + 1)
-         global_index = global_index + (indices(d) - 1) * product
+      do d = ndims-1,1,-1
+         stride = stride * dims(d + 1)
+         global_index = global_index + (indices(d) - 1) * stride
       end do
 
       ! Adjust index for 1-based indexing of Fortran
       global_index = global_index + 1
-   end function IDX_XD
+   end subroutine IDX_XD
 
    !> Dimensional indices from ndims, dims, global_index.
-   pure function IDX_XD_INV(ndims, dims, global_index) result(indices)
-      integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: dims
-      integer, intent(in) :: global_index
+   pure subroutine IDX_XD_INV(ndims, dims, global_index, indices)
+      integer, intent(in) :: ndims, global_index
+      integer, dimension(ndims), intent(in) :: dims
+      integer, dimension(ndims), intent(inout) :: indices
 
-      integer, dimension(ndims) :: indices
-      integer :: d, remaining_index, product
+      integer :: d, remaining_index, stride
 
       ! Adjust index for 1-based indexing of Fortran
       remaining_index = global_index - 1
 
       ! Start with the product of all dimensions except the last one
-      product = 1
+      stride = 1
       do d = 2, ndims
-         product = product * dims(d)
+         stride = stride * dims(d)
       end do
 
       do d = 1, ndims-1
-         indices(d) = (remaining_index / product) + 1
-         remaining_index = mod(remaining_index, product)
-         product = product / dims(d+1)
+         indices(d) = (remaining_index / stride) + 1
+         remaining_index = mod(remaining_index, stride)
+         stride = stride / dims(d+1)
       end do
 
       ! Handle the last dimension separately
       indices(ndims) = remaining_index + 1
 
-   end function IDX_XD_INV
+   end subroutine IDX_XD_INV
 
    !> Routine to print an array of type real
    subroutine print_real_array(ndims, dims, array, stride, title, iounit)
@@ -84,7 +84,7 @@ contains
 
       write(iounit, *) title
       do global_index = 1, do_end
-         indices = IDX_XD_INV(ndims, dims, global_index)
+         call IDX_XD_INV(ndims, dims, global_index, indices)
          start_index = (global_index - 1) * dims(1) * stride + 1
          end_index = global_index * dims(1) * stride
          write(iounit, write_format) array(start_index:end_index)
@@ -125,7 +125,7 @@ contains
 
       write(iounit, *) title
       do global_index = 1, do_end
-         indices = IDX_XD_INV(ndims, dims, global_index)
+         call IDX_XD_INV(ndims, dims, global_index, indices)
          start_index = (global_index - 1) * dims(1) * stride + 1
          end_index = global_index * dims(1) * stride
          write(iounit, write_format) array(start_index:end_index)

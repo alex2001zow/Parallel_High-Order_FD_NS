@@ -13,7 +13,7 @@ subroutine run_simulation()
    implicit none
 
    integer :: ndims, num_physical_cores
-   integer, dimension(:), allocatable :: grid_size, processor_dims
+   integer, dimension(:), allocatable :: grid_size, processor_dims, stencil_sizes
    real, dimension(:), allocatable :: domain_begin, domain_end
 
    integer :: rank, world_size
@@ -27,21 +27,29 @@ subroutine run_simulation()
 
    ! MPI-setup. We can also read input from the command line
    ! call read_input_from_command_line(ndims, grid_size, processor_dim)
-   ndims = 1
+   ndims = 2
 
    allocate(grid_size(ndims))
    allocate(processor_dims(ndims))
    allocate(domain_begin(ndims))
    allocate(domain_end(ndims))
+   allocate(stencil_sizes(ndims))
 
-   grid_size = 8
+   grid_size = 16
    processor_dims = 1
    domain_begin = 0
    domain_end = 1
+   stencil_sizes = 3
 
-   call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
-   !call Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
-   !call Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end)
+   if(ndims == 1) then
+      call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
+   end if
+   if(ndims == 2) then
+      call Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
+   end if
+   if(ndims == 3) then
+      call Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
+   end if
 
    ! Finalize MPI
    call finalize_mpi_wrapper()
