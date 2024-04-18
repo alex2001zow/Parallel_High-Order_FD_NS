@@ -39,7 +39,7 @@ subroutine run_simulation()
    processor_dims = 1
    domain_begin = 0
    domain_end = 1
-   stencil_sizes = 3
+   stencil_sizes = 5
 
    if(ndims == 1) then
       call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)

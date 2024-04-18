@@ -16,15 +16,16 @@ module solver_module
    private
 
    abstract interface
-      pure subroutine SystemSolverInterface(ndims, stencil_size, alphas, num_derivatives, stencil_coefficients, &
-         dims, index, matrix, f_val, df_val, F, J)
+      pure subroutine SystemSolverInterface(ndims, stencil_size, alphas, num_derivatives, &
+         stencil_coefficients, combined_stencils, dims, index, matrix, f_val, F, J)
          integer, intent(in) :: ndims, num_derivatives
          integer, dimension(ndims), intent(in) :: stencil_size, alphas, dims, index
-         real, dimension(product(stencil_size)), intent(in) :: stencil_coefficients
+         real, dimension(product(stencil_size)*num_derivatives), intent(in) :: stencil_coefficients
          real, dimension(product(dims)), intent(in) :: matrix
-         real, intent(in) :: f_val, df_val
+         real, intent(in) :: f_val
 
-         real, intent(inout) :: F, J ! The approximate function and Jacobian value for a given point.
+         real, dimension(product(stencil_size)), intent(inout) :: combined_stencils
+         real, intent(inout) :: F, J ! The approximate residual function and Jacobian of the residual for a given point.
 
       end subroutine SystemSolverInterface
    end interface
@@ -33,14 +34,28 @@ module solver_module
       procedure(SystemSolverInterface), pointer, nopass :: solver => null()
    end type SolverPtrType
 
+   type SolverParamsType
+      real :: tol
+      integer :: max_iter, solver_type
+   end type SolverParamsType
+
+   type ResultType
+      integer :: converged
+      integer :: iterations
+      real :: global_norm
+      real :: relative_norm
+   end type ResultType
+
    enum, bind(C)
-      enumerator :: DefaultSolver = 0
-      enumerator :: GSSolver = 1
-      enumerator :: JSolver = 2
+      enumerator :: JSolver = 1
+      enumerator :: GSSolver = 2
       enumerator :: OtherSolver = 3
    end enum
 
-   public :: SolverPtrType, set_SystemSolver_pointer, run_solver
+   public :: SolverPtrType, set_SystemSolver_pointer
+   public :: SolverParamsType, set_SolverParamsType
+   public :: ResultType
+   public :: run_solver
 
 contains
 
@@ -53,25 +68,26 @@ contains
    end subroutine set_SystemSolver_pointer
 
    !> Run the solver. Split this into a function for each solver type?
-   subroutine run_solver(parameters_in, comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, begin, end, &
-      result_array)
+   subroutine run_solver(parameters_in, comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, SolverParams_in, &
+      begin, end, Result_out)
       type(rank_type), target, intent(in) :: parameters_in
       type(comm_type), target, intent(inout) :: comm_in
       type(block_type), target, intent(inout) :: block_in
-      type(FDstencil_type), target, intent(in) :: FDstencil_in
+      type(FDstencil_type), target, intent(inout) :: FDstencil_in
       type(FunctionPair), target, intent(in) :: functions_in
       type(SolverPtrType), target, intent(in) :: SystemSolver_in
+      type(SolverParamsType), intent(in) :: SolverParams_in
       integer, dimension(parameters_in%ndims), intent(in) :: begin, end
 
-      real, dimension(4), intent(inout) :: result_array
+      type(ResultType), intent(inout) :: Result_out
 
-      integer :: iter, max_iter, converged
+      integer :: iter, converged
       real, dimension(:), pointer :: ptr_temp_array, ptr_matrix
-      real :: local_norm, global_norm, previous_norm, relative_norm, max_tol, norm_scaling
+      real :: local_norm, global_norm, previous_norm, relative_norm, norm_scaling
       real, dimension(1) :: local_norm_array, global_norm_array
       integer :: enum_solver
 
-      enum_solver = GSSolver
+      enum_solver = SolverParams_in%solver_type
 
       select case(enum_solver)
        case(GSSolver)
@@ -101,12 +117,9 @@ contains
       relative_norm = 1e18
 
       converged = 0
-      max_iter = 10000
-
-      max_tol = 1e-6
 
       iter = 0
-      do while (converged /= 1 .and. iter < max_iter)
+      do while (converged /= 1 .and. iter < SolverParams_in%max_iter)
 
          ! Perhaps we should make a seperate function depending on the solver. So we do not have to check the solver type in the loop
          select case(enum_solver)
@@ -116,8 +129,10 @@ contains
                parameters_in%domain_begin, parameters_in%domain_end, parameters_in%grid_size, begin, end, local_norm)
           case(JSolver)
             ! We set the matrix as the temp array to make sure we have the newest data in the matrix and not the temp_array
-            call Jacobi_iteration(parameters_in%ndims, FDstencil_in, block_in%size, &
-               block_in%begin, ptr_temp_array, block_in%f_array, ptr_matrix, local_norm)
+            call Jacobi_iteration(parameters_in%ndims, FDstencil_in, block_in%size*0 + 1, block_in%size, &
+               ptr_temp_array, block_in%f_array, SystemSolver_in, begin, end, ptr_matrix, local_norm)
+            ! call Jacobi_iteration(parameters_in%ndims, FDstencil_in, block_in%size, &
+            !    block_in%begin, ptr_temp_array, block_in%f_array, ptr_matrix, local_norm)
           case default
             print *, "Solver not implemented or does not exist!"
             stop
@@ -136,8 +151,8 @@ contains
             exit  ! Exit the loop
          end if
 
-         relative_norm = abs((global_norm - previous_norm) / (previous_norm + 1e-6))
-         if (previous_norm > 0.0 .and. relative_norm < max_tol) then
+         call calculate_relative_difference(previous_norm, global_norm, relative_norm)
+         if (previous_norm > 0.0 .and. relative_norm < SolverParams_in%tol) then
             converged = 1
          end if
 
@@ -159,52 +174,65 @@ contains
          iter = iter + 1
       end do
 
-      result_array = [global_norm, relative_norm, real(converged,kind=8), real(iter,kind=8)]
+      call set_ResultType(converged, iter, global_norm, relative_norm, Result_out)
 
    end subroutine run_solver
 
    !> Jacobi iteration with 2-norm. Should be like gauss-seidel but with a copy of the matrix. Fix it when Gauss-Seidel works
-   subroutine Jacobi_iteration(ndims, FDstencil, dims, global_begin, matrix, f_array, temp_array, norm)
+   subroutine Jacobi_iteration(ndims, FDstencil, start_dims, dims, matrix, f_array, SystemSolver, begin, end, temp_array, norm)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims, global_begin
-      real, dimension(product(dims)), intent(inout) :: matrix, f_array, temp_array
+      integer, dimension(ndims), intent(in) :: start_dims, dims, begin, end
+
       type(FDstencil_type), intent(in) :: FDstencil
+      type(SolverPtrType), intent(in) :: SystemSolver
+
+      real, dimension(product(dims)), intent(in) :: matrix, f_array
+      real, dimension(product(dims)), intent(inout) :: temp_array
 
       real, intent(inout) :: norm
 
-      integer, dimension(ndims) :: begin, end, local_dims, index, block_index, alphas
-      integer :: global_index, local_index
+      integer, dimension(ndims) :: local_dims, index, alphas
+      integer :: global_index, local_index, coefficient_global_index, coefficients_start_index, coefficients_end_index
+      real :: old_val, f_val, F, J, new_val
 
-      real :: stencil_val, f_val, old_val, new_val
+      real, dimension(FDstencil%num_stencil_elements) :: combined_stencil_coefficients
 
-      ! This is just for this stencil. This should be dynamic depending on the stencil
-      begin = 2
-      end = dims - 1
       local_dims = end - begin + 1
 
       norm = 0.0
 
-      !$omp parallel do reduction(+:norm) private(stencil_val, f_val, old_val, new_val, &
-      !$omp& index, local_index, block_index, alphas) shared(ndims, FDstencil, dims, global_begin, &
-      !$omp& matrix, f_array, temp_array, begin, end, local_dims) default(none)
+      !$omp parallel do reduction(+:norm) &
+      !$omp private(old_val, f_val, F, J, new_val, index, local_index, alphas, &
+      !$omp coefficient_global_index, coefficients_start_index, coefficients_end_index, combined_stencil_coefficients) &
+      !$omp shared(ndims, FDstencil, start_dims, dims, matrix, f_array, SystemSolver, &
+      !$omp begin, temp_array, local_dims) default(none)
       do global_index = 1, product(local_dims)
+
          call IDX_XD_INV(ndims, local_dims, global_index, index)
          index = begin + index - 1
+
          call IDX_XD(ndims, dims, index, local_index)
-         block_index = global_begin + index - 1
+         old_val = matrix(local_index)
 
-         call determine_alpha(ndims, FDstencil%stencil_sizes, begin, end, index, alphas)
-
-         call apply_FDstencil(ndims, FDstencil%stencil_sizes, alphas, FDstencil%stencil_coefficients, &
-            dims, index, matrix, stencil_val)
          f_val = f_array(local_index)
 
-         new_val = stencil_val - f_val
-         old_val = matrix(local_index)
+         ! Determine the alphas for the current index
+         call determine_alpha(ndims, FDstencil%stencil_sizes, start_dims, dims, index, alphas)
+         ! Find the coefficients from alpha.
+         call alpha_2_global(ndims, FDstencil%stencil_sizes, alphas, coefficient_global_index)
+         call global_2_start_end(ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, coefficient_global_index, &
+            coefficients_start_index, coefficients_end_index)
+
+         ! Call the system solver
+         call SystemSolver%solver(ndims, FDstencil%stencil_sizes, alphas, FDstencil%num_derivatives, &
+            FDstencil%stencil_coefficients(coefficients_start_index:coefficients_end_index), &
+            combined_stencil_coefficients, dims, index, matrix, f_val, F, J)
+
+         call Newtons_iteration(old_val, F, J, new_val)
 
          temp_array(local_index) = new_val
 
-         norm = norm + (new_val-old_val)*(new_val-old_val)
+         norm = norm + abs((new_val-old_val))**2
       end do
 
    end subroutine Jacobi_iteration
@@ -223,10 +251,11 @@ contains
       real, dimension(product(dims)), intent(inout) :: matrix
       real, intent(inout) :: norm
 
-      integer, dimension(ndims) :: local_dims, index, block_index, alphas
-      real, dimension(ndims) :: point
+      integer, dimension(ndims) :: local_dims, index, alphas
       integer :: global_index, local_index, coefficient_global_index, coefficients_start_index, coefficients_end_index
-      real :: f_val, df_val, old_val, F, J, new_val
+      real :: old_val, f_val, F, J, new_val
+
+      real, dimension(FDstencil%num_stencil_elements) :: combined_stencil_coefficients
 
       local_dims = end - begin + 1
 
@@ -236,49 +265,76 @@ contains
 
          call IDX_XD_INV(ndims, local_dims, global_index, index)
          index = begin + index - 1
-         block_index = global_begin + index - 1
 
          call IDX_XD(ndims, dims, index, local_index)
          old_val = matrix(local_index)
 
-         ! Calculate the point in the global domain
-         point = global_domain_begin + (block_index - 1) * FDstencil%dx
+         ! Calculate the function
+         call functions%rhs_func%func(ndims, global_begin, index, &
+            global_domain_begin, global_domain_end, global_domain_size, FDstencil%dx, f_val)
 
          ! Determine the alphas for the current index
          call determine_alpha(ndims, FDstencil%stencil_sizes, start_dims, dims, index, alphas)
-
          ! Find the coefficients from alpha.
          call alpha_2_global(ndims, FDstencil%stencil_sizes, alphas, coefficient_global_index)
          call global_2_start_end(ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, coefficient_global_index, &
             coefficients_start_index, coefficients_end_index)
 
-         ! Calculate the function and derivative values
-         call functions%rhs_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
-            block_index, FDstencil%dx, point, f_val)
-         call functions%rhs_derivative_func%func(ndims, global_domain_begin, global_domain_end, global_domain_size, &
-            block_index, FDstencil%dx, point, df_val)
-
          ! Call the system solver
          call SystemSolver%solver(ndims, FDstencil%stencil_sizes, alphas, FDstencil%num_derivatives, &
             FDstencil%stencil_coefficients(coefficients_start_index:coefficients_end_index), &
-            dims, index, matrix, f_val, df_val, F, J)
+            combined_stencil_coefficients, dims, index, matrix, f_val, F, J)
 
          call Newtons_iteration(old_val, F, J, new_val)
 
          matrix(local_index) = new_val
 
-         norm = norm + (new_val-old_val)**2
+         norm = norm + abs((new_val-old_val))**2
       end do
 
    end subroutine GS_iteration
 
    !> Newtons method iteration
-   elemental subroutine Newtons_iteration(x, F, J, x_new)
-      real, intent(in) :: x, F, J
+   elemental subroutine Newtons_iteration(x_old, F, J, x_new)
+      real, intent(in) :: x_old, F, J
       real, intent(inout) :: x_new
 
-      x_new = x - F / (J + 1e-6) ! J + 1e-6 to avoid division by zero.
+      x_new = x_old - F / (J + 1e-6) ! J + 1e-6 to avoid division by zero.
 
    end subroutine Newtons_iteration
+
+   !> Set the solver parameters. Solver type is Jacobi=1 and Gauss-Seidel=2
+   pure subroutine set_SolverParamsType(tol, max_iter, solver_type, SolverParams)
+      real, intent(in) :: tol
+      integer, intent(in) :: max_iter, solver_type
+      type(SolverParamsType), intent(inout) :: SolverParams
+
+      SolverParams%tol = tol
+      SolverParams%max_iter = max_iter
+      SolverParams%solver_type = solver_type
+
+   end subroutine set_SolverParamsType
+
+   !> Set the result type
+   pure subroutine set_ResultType(converged, iterations, global_norm, relative_norm, Result)
+      integer, intent(in) :: converged, iterations
+      real, intent(in) :: global_norm, relative_norm
+      type(ResultType), intent(inout) :: Result
+
+      Result%converged = converged
+      Result%iterations = iterations
+      Result%global_norm = global_norm
+      Result%relative_norm = relative_norm
+
+   end subroutine set_ResultType
+
+   ! Calculate the relative difference
+   elemental subroutine calculate_relative_difference(x_old, x_new, relative_difference)
+      real, intent(in) :: x_old, x_new
+      real, intent(inout) :: relative_difference
+
+      relative_difference = abs((x_new - x_old) / (x_old + 1e-6))
+
+   end subroutine calculate_relative_difference
 
 end module solver_module

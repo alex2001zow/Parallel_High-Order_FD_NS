@@ -82,11 +82,12 @@ contains
          index_end = global_index*ndims
          derivative = derivatives(index_start:index_end)
          call calculate_finite_difference_stencil(ndims, alphas, betas, derivative, temp_stencil_coefficients)
+         !temp_stencil_coefficients = temp_stencil_coefficients / product(dx**derivative) ! This should be removed and calculates on a per block basis. Then we can use multigrid.
 
          stencil_coefficients_index_start = (global_index-1)*num_stencil_elements + 1
          stencil_coefficients_index_end = global_index*num_stencil_elements
          stencil_coefficients(stencil_coefficients_index_start:stencil_coefficients_index_end) &
-            = temp_stencil_coefficients / product(dx**derivative)
+            = temp_stencil_coefficients
       end do
 
    end subroutine create_finite_difference_stencil_from_alpha_and_beta
@@ -191,7 +192,8 @@ contains
          end_index = global_index * num_taylor_elements
 
          ! The Taylor coefficients are calculated for each point of the stencil
-         call calculate_taylor_coefficients(ndims, stencil_sizes, real(index,kind=8), taylor_coefficients)
+         call calculate_taylor_coefficients(ndims, stencil_sizes, real(index,kind=kind(taylor_coefficients(1))), &
+            taylor_coefficients)
          coefficient_matrix(start_index:end_index) = taylor_coefficients
 
       end do
