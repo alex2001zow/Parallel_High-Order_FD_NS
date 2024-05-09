@@ -1,90 +1,182 @@
 module Poisson_module
-   use constants_module, only : pi, MASTER_RANK, filename_txt, filename_dat
+   use constants_module, only : pi, MASTER_RANK
    use mpi, only: MPI_DOUBLE_PRECISION, MPI_SUM, MPI_WTIME
-   use mpi_wrapper_module, only: all_reduce_mpi_wrapper
+   use mpi_wrapper_module, only: all_reduce_mpi_wrapper, write_block_data_to_file
 
-   use rank_module, only: rank_type, create_rank_type, deallocate_rank_type, print_rank_type, write_rank_type_blocks_to_file
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
       print_cart_comm_type, print_cartesian_grid
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
-      print_finite_difference_stencil, apply_FDstencil
+      print_finite_difference_stencil, apply_FDstencil, update_value_from_stencil, get_FD_coefficients_from_index, &
+      calculate_scaled_coefficients
    use block_module, only: block_type, create_block_type, deallocate_block_type, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers, calculate_point
 
-   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD
+   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, sleeper_function
    use initialization_module, only: write_initial_condition_and_boundary
 
    use solver_module, only: SolverPtrType, set_SystemSolver_pointer, SolverParamsType, set_SolverParamsType, &
-      ResultType, run_solver
+      ResultType, print_resultType, choose_iterative_solver, check_convergence
    implicit none
 
    private
 
-   public :: Poission_1D_analytical, Poission_2D_analytical, Poission_3D_analytical
+   public :: Poisson_main
 
 contains
+   !> The main Poisson subroutine to solve the system
+   subroutine Poisson_main(rank, world_size)
+      integer, intent(in) :: rank, world_size
+
+      integer :: ndims
+      integer, dimension(:), allocatable :: grid_size, processor_dims, stencil_sizes
+      real, dimension(:), allocatable :: domain_begin, domain_end
+      type(SolverParamsType) :: solver_params
+
+      !call sleeper_function(1)
+
+      ndims = 2
+
+      allocate(grid_size(ndims))
+      allocate(processor_dims(ndims))
+      allocate(domain_begin(ndims))
+      allocate(domain_end(ndims))
+      allocate(stencil_sizes(ndims))
+
+      grid_size = 64
+      processor_dims = 1
+      domain_begin = 0
+      domain_end = 1
+      stencil_sizes = 5
+
+      ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
+      call set_SolverParamsType(1e-15, 100000, 2, solver_params)
+
+      if(ndims == 1) then
+         call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+            stencil_sizes,solver_params)
+      end if
+      if(ndims == 2) then
+         call Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+            stencil_sizes, solver_params)
+      end if
+      if(ndims == 3) then
+         call Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+            stencil_sizes,solver_params)
+      end if
+
+      ! Deallocate the system setup
+      if (allocated(grid_size)) deallocate(grid_size)
+      if (allocated(processor_dims)) deallocate(processor_dims)
+      if (allocated(domain_begin)) deallocate(domain_begin)
+      if (allocated(domain_end)) deallocate(domain_end)
+
+   end subroutine Poisson_main
+
+   !> The analytical solution of the 1D Poisson equation
+   subroutine Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+      stencil_sizes, solver_params)
+      integer, intent(in) :: rank, world_size
+      integer, dimension(1), intent(in) :: grid_size, processor_dims, stencil_sizes
+      real, dimension(1), intent(in) :: domain_begin, domain_end
+      type(SolverParamsType), intent(in) :: solver_params
+
+      integer, parameter :: num_derivatives = 1
+      integer, dimension(num_derivatives), parameter :: derivatives = [2]
+
+      call Poission_analytical_wrapper(1, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+         num_derivatives, derivatives, stencil_sizes, solver_params)
+
+   end subroutine Poission_1D_analytical
+
+   !> The analytical solution of the 2D Poisson equation
+   subroutine Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+      stencil_sizes, solver_params)
+      integer, intent(in) :: rank, world_size
+      integer, dimension(2), intent(in) :: grid_size, processor_dims, stencil_sizes
+      real, dimension(2), intent(in) :: domain_begin, domain_end
+      type(SolverParamsType), intent(in) :: solver_params
+
+      integer, parameter :: num_derivatives = 2
+      integer, dimension(2*num_derivatives), parameter :: derivatives = [2,0,0,2]
+
+      call Poission_analytical_wrapper(2, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+         num_derivatives, derivatives, stencil_sizes, solver_params)
+
+   end subroutine Poission_2D_analytical
+
+   !> The analytical solution of the 3D Poisson equation
+   subroutine Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+      stencil_sizes, solver_params)
+      integer, intent(in) :: rank, world_size
+      integer, dimension(3), intent(in) :: grid_size, processor_dims, stencil_sizes
+      real, dimension(3), intent(in) :: domain_begin, domain_end
+      type(SolverParamsType), intent(in) :: solver_params
+
+      integer, parameter :: num_derivatives = 3
+      integer, dimension(3*num_derivatives), parameter :: derivatives = [2,0,0,0,2,0,0,0,2]
+
+      call Poission_analytical_wrapper(3, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
+         num_derivatives, derivatives, stencil_sizes, solver_params)
+
+   end subroutine Poission_3D_analytical
 
    !> The analytical solution of the 2D Poisson equation
    subroutine Poission_analytical_wrapper(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      num_derivatives, derivatives, stencil_sizes)
+      num_derivatives, derivatives, stencil_sizes, solver_params)
       integer, intent(in) :: ndims, rank, world_size
       integer, dimension(:), intent(in) :: grid_size, processor_dims
       real, dimension(:), intent(in) :: domain_begin, domain_end
 
       integer, intent(in) :: num_derivatives
       integer, dimension(:), intent(in) :: derivatives, stencil_sizes
+      type(SolverParamsType), intent(in) :: solver_params
+
+      integer, dimension(5) :: num_data_elements
 
       integer, dimension(ndims) ::  begin, end
-
-      real, dimension(ndims) :: dx
       integer :: iounit
       real, dimension(4) :: result_array_with_timings
 
-      type(rank_type) :: rank_params
       type(comm_type) :: comm_params
       type(FDstencil_type) :: FDstencil_params
       type(block_type) :: block_params
       type(FunctionPair) :: funcs_params
       type(SolverPtrType) :: SystemSolver
-      type(SolverParamsType) :: solver_params
       type(ResultType) :: result
+
+      num_data_elements = [1,1,1,1,1]
 
       call set_SystemSolver_pointer(Poisson_solve_system, SystemSolver)
 
-      ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1e-6, 10000, 2, solver_params)
+      call set_function_pointers(num_data_elements, initial_poisson, boundary_poisson, &
+         f_analytical_poisson, df_analytical_poisson, u_analytical_poisson, funcs_params)
 
-      ! Setup rank parameters
-      call create_rank_type(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, rank_params)
+      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
 
-      call set_function_pointers(initial_poisson, boundary_poisson, f_analytical_poisson, df_analytical_poisson, &
-         u_analytical_poisson, funcs_params)
+      call create_block_type(ndims, num_data_elements(1), num_data_elements(1), grid_size * 0, stencil_sizes, &
+         domain_begin, domain_end, grid_size, comm_params, block_params)
 
-      call create_cart_comm_type(rank_params%ndims, rank_params%grid_size, rank_params%processor_dim, &
-         rank_params%rank, comm_params)
-
-      dx = abs((rank_params%domain_end - rank_params%domain_begin)) / (rank_params%grid_size - 1)
-
-      call create_finite_difference_stencils(rank_params%ndims, num_derivatives, derivatives, &
-         dx, stencil_sizes, FDstencil_params)
-
-      call create_block_type(rank_params%ndims, comm_params, block_params)
+      call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
       ! Initialize the block
-      call write_initial_condition_and_boundary(rank_params%ndims, rank_params%domain_begin, rank_params%domain_end, &
-         rank_params%grid_size, block_params%begin, block_params%size, block_params%matrix, &
-         FDstencil_params%dx, funcs_params)
+      call write_initial_condition_and_boundary(ndims, num_data_elements(1), domain_begin, domain_end, &
+         grid_size, block_params%global_begin_c+1, block_params%local_size, block_params%matrix, &
+         block_params%dx, funcs_params)
 
       ! Set the begin and end for the solver
       begin = 2
-      end = block_params%size - 1
+      end = block_params%local_size - 1
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
 
       ! Run the solver
-      call run_solver(rank_params, comm_params, block_params, FDstencil_params, funcs_params, SystemSolver, solver_params, &
-         begin, end, result)
+      !call choose_iterative_solver(comm_params, block_params, FDstencil_params, &
+      !   funcs_params, SystemSolver, solver_params, &
+      !  begin, end, result)
+
+      !call GS_Method(comm_params, block_params, FDstencil_params, funcs_params, SystemSolver, solver_params, &
+      !   begin, end)
 
       result_array_with_timings(2) = MPI_WTIME()
 
@@ -94,36 +186,29 @@ contains
          int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), comm_params%comm)
 
       ! Write out the result and timings from the master rank
-      if(rank_params%rank == MASTER_RANK) then
-         write(*,"(A, I10.1)") "Converged: ", result%converged
-         write(*,"(A, I10.1)") "Iterations: ", result%iterations
-         write(*,"(A, E10.3)") "Glob_norm: ", result%global_norm
-         write(*,"(A, E10.3)") "Rel_norm: ", result%relative_norm
+      if(rank == MASTER_RANK) then
+         call print_resultType(result)
          write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
 
          ! Write out the cartesian grid from the master rank
-         call print_cartesian_grid(rank_params%ndims, comm_params%comm, rank_params%world_size, rank_params%processor_dim,&
-            filename_txt)
+         call print_cartesian_grid(ndims, comm_params%comm, world_size, processor_dims, "output/output_from_")
       end if
 
       ! Write out our setup to a file. Just for debugging purposes
-      call open_txt_file(filename_txt, rank_params%rank, iounit)
+      call open_txt_file("output/output_from_", rank, iounit)
 
-      call print_rank_type(rank_params, iounit)
+      call print_cart_comm_type(comm_params, iounit)
 
-      call print_cart_comm_type(rank_params%ndims, comm_params, iounit)
+      call print_finite_difference_stencil(ndims, FDstencil_params, iounit)
 
-      call print_finite_difference_stencil(rank_params%ndims, FDstencil_params, iounit)
-
-      call print_block_type(rank_params%ndims, block_params, iounit)
+      call print_block_type(ndims, block_params, iounit)
 
       call close_txt_file(iounit)
 
       ! Write out system solution to a file
-      call write_rank_type_blocks_to_file(rank_params, comm_params, block_params, filename_dat)
+      call write_block_data_to_file(block_params%data_layout, "output/system_solution.dat", comm_params%comm, block_params%matrix)
 
       ! Deallocate data
-      call deallocate_rank_type(rank_params)
 
       call deallocate_cart_comm_type(comm_params)
 
@@ -133,59 +218,17 @@ contains
 
    end subroutine Poission_analytical_wrapper
 
-   !> The analytical solution of the 1D Poisson equation
-   subroutine Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
-      integer, intent(in) :: rank, world_size
-      integer, dimension(1), intent(in) :: grid_size, processor_dims, stencil_sizes
-      real, dimension(1), intent(in) :: domain_begin, domain_end
-
-      integer, parameter :: num_derivatives = 1
-      integer, dimension(num_derivatives), parameter :: derivatives = [2]
-
-      call Poission_analytical_wrapper(1, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, stencil_sizes)
-
-   end subroutine Poission_1D_analytical
-
-   !> The analytical solution of the 2D Poisson equation
-   subroutine Poission_2D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
-      integer, intent(in) :: rank, world_size
-      integer, dimension(2), intent(in) :: grid_size, processor_dims, stencil_sizes
-      real, dimension(2), intent(in) :: domain_begin, domain_end
-
-      integer, parameter :: num_derivatives = 2
-      integer, dimension(2*num_derivatives), parameter :: derivatives = [2,0,0,2]
-
-      call Poission_analytical_wrapper(2, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, stencil_sizes)
-
-   end subroutine Poission_2D_analytical
-
-   !> The analytical solution of the 3D Poisson equation
-   subroutine Poission_3D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, stencil_sizes)
-      integer, intent(in) :: rank, world_size
-      integer, dimension(3), intent(in) :: grid_size, processor_dims, stencil_sizes
-      real, dimension(3), intent(in) :: domain_begin, domain_end
-
-      integer, parameter :: num_derivatives = 3
-      integer, dimension(3*num_derivatives), parameter :: derivatives = [2,0,0,0,2,0,0,0,2]
-
-      call Poission_analytical_wrapper(3, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, stencil_sizes)
-
-   end subroutine Poission_3D_analytical
-
    !> Solve the Poisson system
-   pure subroutine Poisson_solve_system(ndims, stencil_size, alphas, num_derivatives, stencils, combined_stencils, &
+   pure subroutine Poisson_solve_system(ndims, num_elements, stencil_size, alphas, num_derivatives, stencils, combined_stencils, &
       dims, index, matrix, f_value, F, J)
-      integer, intent(in) :: ndims, num_derivatives
+      integer, intent(in) :: ndims, num_elements, num_derivatives
       integer, dimension(ndims), intent(in) :: stencil_size, alphas, dims, index
-      real, dimension(product(stencil_size)*num_derivatives), intent(in) :: stencils
-      real, dimension(product(dims)), intent(in) :: matrix
-      real, intent(in) :: f_value
+      real, dimension(:), target, intent(inout) :: stencils
+      real, dimension(:), intent(in) :: matrix
+      real, dimension(:), intent(in) :: f_value
 
       real, dimension(product(stencil_size)), intent(inout) :: combined_stencils
-      real, intent(inout) :: F, J
+      real, dimension(num_elements), intent(inout) :: F, J
 
       integer :: global_index, stencil_begin, stencil_end, num_stencil_elements, center_coefficient_global_index
 
@@ -203,36 +246,114 @@ contains
       end do
 
       ! Evaluate the stencil
-      call apply_FDstencil(ndims, stencil_size, alphas, combined_stencils, dims, index, matrix, F)
-      F = F - f_value
+      call apply_FDstencil(ndims, 1, 0, stencil_size, alphas, combined_stencils, dims, index, matrix, F(1))
+      F(1) = F(1) - f_value(1)
 
       ! Evaluate the Jacobian. This is simply finding the center coefficient
       call IDX_XD(ndims, stencil_size, alphas + 1, center_coefficient_global_index)
-      J = combined_stencils(center_coefficient_global_index)
+      J(1) = combined_stencils(center_coefficient_global_index)
 
    end subroutine Poisson_solve_system
 
+   subroutine GS_Method(comm_params, block_params, FDstencil_params, funcs_params, SystemSolver, solver_params, &
+      begin, end)
+      type(comm_type), intent(in) :: comm_params
+      type(block_type), intent(inout) :: block_params
+      type(FDstencil_type), target, intent(inout) :: FDstencil_params
+      type(FunctionPair), intent(in) :: funcs_params
+      type(SolverPtrType), intent(in) :: SystemSolver
+      type(SolverParamsType), intent(in) :: solver_params
+      integer, dimension(comm_params%ndims), intent(in) :: begin, end
+
+      integer :: ndims, num_elements, num_stencil_elements, it, ii, jj, global_index, converged
+      real, dimension(comm_params%ndims) :: global_domain_begin, global_domain_end
+      integer, dimension(comm_params%ndims) :: start_dims, dims, index, alphas, global_domain_size, stencil_size
+      real, dimension(4) :: norm_array
+      real, dimension(:), pointer :: coefficients, dfxx, dfyy
+      real :: old_val, new_val
+      real, dimension(1) :: f_val
+
+      stencil_size = FDstencil_params%stencil_sizes
+
+      global_domain_begin = block_params%domain_begin
+      global_domain_end = block_params%domain_end
+      global_domain_size = block_params%local_size
+
+      ndims = comm_params%ndims
+
+      start_dims = 1
+      dims = block_params%local_size
+
+      call calculate_scaled_coefficients(ndims, block_params%dx, FDstencil_params)
+
+      norm_array = [1e3,1e6,1e9,1e12]
+
+      converged = 0
+      it = 0
+      do while(converged /= 1 .and. it < solver_params%max_iter)
+         norm_array(1) = 0.0
+         do ii = begin(1), end(1)
+            do jj = begin(2), end(2)
+               index = [ii,jj]
+               call IDX_XD(ndims, dims, index, global_index)
+
+               old_val = block_params%matrix(global_index)
+
+               call get_FD_coefficients_from_index(ndims, FDstencil_params%num_derivatives, FDstencil_params%stencil_sizes, &
+                  start_dims, dims, index, FDstencil_params%scaled_stencil_coefficients, alphas, coefficients)
+
+               dfxx => coefficients(1:FDstencil_params%num_stencil_elements)
+               dfyy => coefficients(FDstencil_params%num_stencil_elements + 1:&
+                  2 * FDstencil_params%num_stencil_elements)
+
+               call f_analytical_poisson(ndims, funcs_params%rhs_func%output_size, start_dims, index, &
+                  global_domain_begin, global_domain_end, global_domain_size, block_params%dx, f_val)
+
+               call update_value_from_stencil(ndims, 1, 0, stencil_size, alphas, (dfxx + dfyy), &
+                  dims, index, block_params%matrix, f_val(1), new_val)
+
+               block_params%matrix(global_index) = new_val
+
+               norm_array(1) = norm_array(1) + (abs(new_val - old_val))**2
+
+            end do
+         end do
+
+         call check_convergence(comm_params%comm, solver_params%tol, 1.0/product(block_params%local_size), norm_array, converged)
+         if(converged == -1) then
+            write(*,*) "Convergence failed"
+            stop
+         end if
+
+         it = it + 1
+
+      end do
+
+      write(*,*) "Converged in ", it, " iterations"
+
+   end subroutine GS_Method
+
    !!!! POISSON EQUATION FUNCTIONS !!!!
 
-   pure subroutine initial_poisson(ndims, global_begin_indices, local_indices, &
+   pure subroutine initial_poisson(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
       func_val = 20.0
 
    end subroutine initial_poisson
 
-   pure subroutine boundary_poisson(ndims, global_begin_indices, local_indices, &
+   pure subroutine boundary_poisson(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
       integer, dimension(ndims) :: block_index
       logical :: at_boundary
@@ -242,19 +363,19 @@ contains
       at_boundary = any(block_index == 1 .or. block_index == global_domain_size)
 
       if (at_boundary) then
-         call u_analytical_poisson(ndims, global_begin_indices, local_indices, &
+         call u_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
             global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
       end if
 
    end subroutine boundary_poisson
 
-   pure subroutine f_analytical_poisson(ndims, global_begin_indices, local_indices, &
+   pure subroutine f_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
       real, dimension(ndims) :: point
 
@@ -266,13 +387,13 @@ contains
 
    end subroutine f_analytical_poisson
 
-   pure subroutine df_analytical_poisson(ndims, global_begin_indices, local_indices, &
+   pure subroutine df_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
       real, dimension(ndims) :: point
 
@@ -282,13 +403,13 @@ contains
 
    end subroutine df_analytical_poisson
 
-   pure subroutine u_analytical_poisson(ndims, global_begin_indices, local_indices, &
+   pure subroutine u_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
       real, dimension(ndims) :: point
 

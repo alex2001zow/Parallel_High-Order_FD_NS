@@ -14,7 +14,7 @@ rm -f python/output/*
 make clean
 
 # Compile the program either in debug or release mode
-make debug
+make release
 
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program

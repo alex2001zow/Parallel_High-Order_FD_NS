@@ -17,7 +17,10 @@ EXEC_DIR = exec
 DEBUGFLAGS = -g -fbacktrace -ffpe-trap=zero,overflow,underflow,invalid -fbounds-check -O0
 
 # Release flags
-RELEASEFLAGS = -O3 -flto -fopt-info-vec-missed -fopt-info-loop-all
+RELEASEFLAGS = -O3 -march=native -flto -funroll-loops
+# Verbose optimization flags
+VERBOSEFLAGS = -fopt-info-vec -fopt-info-loop -fopt-info-inline
+#VERBOSEFLAGS = -fopt-info-all
 
 # OpenACC flags
 OPENMPFLAGS = -fopenmp
@@ -35,7 +38,7 @@ LDFLAGS = -llapack -lblas -lm $(OPENMPFLAGS)
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
 
 # Files to compile
-FILES = utility_functions_module.f90 mpi_wrapper_module.f90 constants_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 FD_module.f90 rank_module.f90 solver_module.f90 poisson_module.f90 main.f90
+FILES = utility_functions_module.f90 constants_module.f90 mpi_wrapper_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 FD_module.f90 solver_module.f90 block_test_module.f90 poisson_module.f90 nonlinear_test_module.f90 Navier_Stokes_2D_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
@@ -49,10 +52,10 @@ default:
 	@echo "To compile the program type make debug|release"
 
 # Combined compiler flags for compilation
-release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS)
+release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS) $(VERBOSEFLAGS)
 release: $(EXEC)
 
-debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS)
+debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS) $(VERBOSEFLAGS)
 debug: $(EXEC)
 
 $(EXEC): $(OBJS) | $(EXEC_DIR)

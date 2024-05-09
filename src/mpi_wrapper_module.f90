@@ -6,6 +6,14 @@ module mpi_wrapper_module
 
    private
 
+   type block_data_layout_type
+      integer :: number_of_existing_neighbors
+      integer, dimension(:), allocatable :: neighbor_ranks
+      integer(kind=4) :: elements_per_index_type_4, global_block_type_4, true_block_type_4
+      integer(kind=MPI_OFFSET_KIND) :: writing_offset
+      integer(kind=4), dimension(:), allocatable :: send_type_4, recv_type_4
+   end type block_data_layout_type
+
    ! 4 byte integers because of OpenMPI
    integer(kind=4) :: rank_4, world_size_4, ierr_4, comm_cart_4, rank_of_coords_4, error_4
    integer(kind=4) :: original_errhandler_4 = MPI_ERRHANDLER_NULL
@@ -13,10 +21,12 @@ module mpi_wrapper_module
    integer(kind=4) :: send_request_4, recv_request_4
    integer(kind=4), parameter :: neighbor_sendrecv_tag = 99
 
+   public :: block_data_layout_type, define_block_layout, create_send_recv_layout, sendrecv_data_to_neighbors, &
+      free_block_layout_type, write_block_data_to_file
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
       cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper, &
-      write_to_file_mpi_wrapper, check_openmpi_version
+      check_openmpi_version
 
 contains
 
@@ -105,19 +115,14 @@ contains
    subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, comm_cart_8)
       integer, intent(in) :: ndims_8
       integer, dimension(:), intent(in) :: dims_8
+      integer, intent(out) :: comm_cart_8
 
       logical(kind=4) :: periods_4(ndims_8)
       logical(kind=4) :: reorder_4 = .TRUE.
 
-      integer, intent(out) :: comm_cart_8
+      periods_4 = .FALSE.
 
-      integer :: ii
-
-      do ii = 1, ndims_8
-         periods_4(ii) = .FALSE.
-      end do
-
-      call MPI_CART_CREATE(INT(MPI_COMM_WORLD,kind=4), int(ndims_8,kind=4), int(dims_8,kind=4),&
+      call MPI_CART_CREATE(int(MPI_COMM_WORLD,kind=4), int(ndims_8,kind=4), int(dims_8,kind=4),&
          periods_4, reorder_4, comm_cart_4, ierr_4)
       call check_error_mpi(ierr_4)
 
@@ -219,88 +224,182 @@ contains
       call check_error_mpi(ierr_4)
    end subroutine all_reduce_mpi_wrapper
 
-   !> Write the block to the file using MPI-IO
-   subroutine write_to_file_mpi_wrapper(ndims, solution_filename, comm, num_blocks, block_length, block_stride, &
-      starting_offset, extent, global_dims, block_dims, block_begin, solution_buffer, solution_offset, solution_count)
+   !> Subroutine to define the whole block, the true block and the offset for writing to a file.
+   subroutine define_block_layout(ndims, elements_per_index, grid_size, ghost_begin_c, ghost_end_c, &
+      global_begin_c, global_dims, extended_global_begin_c, extended_global_dims, &
+      block_begin_c, block_dims, extended_block_begin_c, extended_block_dims, block_data_layout)
+      integer :: ndims, elements_per_index
+      integer, dimension(ndims), intent(in) :: grid_size, ghost_begin_c, ghost_end_c
+      integer, dimension(ndims), intent(in) :: global_begin_c, global_dims, extended_global_begin_c, extended_global_dims
+      integer, dimension(ndims), intent(in) :: block_begin_c, block_dims, extended_block_begin_c, extended_block_dims
+      type(block_data_layout_type), intent(inout) :: block_data_layout
 
-      integer, intent(in) :: ndims, num_blocks, block_length, block_stride, starting_offset, extent
-      character(len=*), intent(in) :: solution_filename
-      integer, intent(in) :: comm, solution_count
-      integer, dimension(:), intent(in) :: global_dims, block_dims, block_begin
-      real, dimension(:), intent(in) :: solution_buffer
-      integer(kind=MPI_OFFSET_KIND), intent(in) :: solution_offset
-
-      integer(kind=4) :: ndims_4, num_blocks_4, block_length_4, block_stride_4
-      integer(kind=MPI_ADDRESS_KIND) :: starting_offset_4, extent_4
-      integer(kind=4) :: comm_4, solution_count_4
-      integer(kind=4), dimension(ndims) :: global_dims_4, block_dims_4, block_begin_4
-      integer(kind=4) :: block_type, reshaped_block_type, file_type
-      integer(kind=4) :: solution_fh_4
-      integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status
+      integer(kind=4) :: ndims_4, elements_per_index_4
+      integer(kind=4), dimension(ndims) :: fullsizes_4, subsizes_4, starts_4
 
       ndims_4 = ndims
-      num_blocks_4 = num_blocks
-      block_length_4 = block_length
-      block_stride_4 = block_stride
-      starting_offset_4 = starting_offset
-      extent_4 = extent
+      elements_per_index_4 = elements_per_index
+
+      ! Define the number of elements for each index in the block
+      call MPI_TYPE_CONTIGUOUS(elements_per_index_4, MPI_DOUBLE_PRECISION, block_data_layout%elements_per_index_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%elements_per_index_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Define the true block in the scope of the global block. This is so we can use it to set a view in the file with an offset of 0 when writing to the file.
+      fullsizes_4 = grid_size
+      subsizes_4 = global_dims
+      starts_4 = global_begin_c
+      !print *, "Global space: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, &
+         MPI_ORDER_FORTRAN, block_data_layout%elements_per_index_type_4, block_data_layout%global_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%global_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Define the the true block in the scope of the whole block with stencil points and ghost points. This MPI-datatype should only give use the elements in the true block.
+      fullsizes_4 = extended_block_dims
+      subsizes_4 = block_dims
+      starts_4 = block_begin_c
+      !print *, "Local block: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, &
+         MPI_ORDER_FORTRAN, block_data_layout%elements_per_index_type_4, block_data_layout%true_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%true_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+   end subroutine define_block_layout
+
+   !> Subroutine to define the neighbor send and recieve types
+   subroutine create_send_recv_layout(ndims, neighbor_index, full_block_dims, &
+      begin_send, end_send, begin_recv, end_recv, block_data_layout)
+      integer :: ndims, neighbor_index
+      integer, dimension(ndims), intent(in) :: full_block_dims
+      integer, dimension(ndims), intent(in) :: begin_send, end_send, begin_recv, end_recv
+      type(block_data_layout_type), intent(inout) :: block_data_layout
+
+      integer(kind=4) :: ndims_4
+      integer(kind=4), dimension(ndims) :: fullsizes_4, subsizes_4, starts_4
+
+      ndims_4 = ndims
+
+      fullsizes_4 = full_block_dims
+      subsizes_4 = end_send - begin_send
+      starts_4 = begin_send
+      !print *, "Send array: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, MPI_ORDER_FORTRAN, &
+         block_data_layout%elements_per_index_type_4, block_data_layout%send_type_4(neighbor_index), ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%send_type_4(neighbor_index), ierr_4)
+      call check_error_mpi(ierr_4)
+
+      fullsizes_4 = full_block_dims
+      subsizes_4 = end_recv - begin_recv
+      starts_4 = begin_recv
+      !print *, "Recv array: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, MPI_ORDER_FORTRAN, &
+         block_data_layout%elements_per_index_type_4, block_data_layout%recv_type_4(neighbor_index), ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%recv_type_4(neighbor_index), ierr_4)
+      call check_error_mpi(ierr_4)
+
+   end subroutine create_send_recv_layout
+
+   !> Subroutine to send and recieve data to and from neighbors using the send and recieve types
+   subroutine sendrecv_data_to_neighbors(block_data_layout, matrix, comm_cart, &
+      neighbor_rank, neighbor_index, send_request, recv_request)
+      type(block_data_layout_type), intent(in) :: block_data_layout
+      real, dimension(:), intent(inout) :: matrix
+      integer, intent(in) :: comm_cart, neighbor_rank, neighbor_index
+      integer, intent(out) :: send_request, recv_request
+
+      integer(kind=4) :: neighbor_rank_4, neighbor_index_4
+
+      comm_cart_4 = comm_cart
+      neighbor_rank_4 = neighbor_rank
+      neighbor_index_4 = neighbor_index
+
+      call MPI_ISEND(matrix, int(1,kind=4), block_data_layout%send_type_4(neighbor_index_4), neighbor_rank_4, &
+         neighbor_sendrecv_tag, comm_cart_4, send_request_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_IRECV(matrix, int(1,kind=4), block_data_layout%recv_type_4(neighbor_index_4), neighbor_rank_4, &
+         neighbor_sendrecv_tag, comm_cart_4, recv_request_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      send_request = send_request_4
+      recv_request = recv_request_4
+
+   end subroutine sendrecv_data_to_neighbors
+
+   !> Subroutine to free the block layout types
+   subroutine free_block_layout_type(block_data_layout)
+      type(block_data_layout_type), intent(inout) :: block_data_layout
+
+      integer :: global_index
+
+      if (allocated(block_data_layout%neighbor_ranks)) deallocate(block_data_layout%neighbor_ranks)
+
+      call MPI_TYPE_FREE(block_data_layout%elements_per_index_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_FREE(block_data_layout%global_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      call MPI_TYPE_FREE(block_data_layout%true_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Free the neighbor send and recieve types.
+      do global_index = 1, block_data_layout%number_of_existing_neighbors
+         call MPI_TYPE_FREE(block_data_layout%send_type_4(global_index), ierr_4)
+         call check_error_mpi(ierr_4)
+
+         call MPI_TYPE_FREE(block_data_layout%recv_type_4(global_index), ierr_4)
+         call check_error_mpi(ierr_4)
+
+      end do
+
+      if (allocated(block_data_layout%send_type_4)) deallocate(block_data_layout%send_type_4)
+      if (allocated(block_data_layout%recv_type_4)) deallocate(block_data_layout%recv_type_4)
+   end subroutine free_block_layout_type
+
+   ! Subroutine to write block data to a file
+   subroutine write_block_data_to_file(block_data_layout, solution_filename, comm, block_data)
+      type(block_data_layout_type), intent(in) :: block_data_layout
+      character(len=*), intent(in) :: solution_filename
+      integer, intent(in) :: comm
+      real, dimension(:), intent(in) :: block_data
+
+      integer(kind=4) :: comm_4, solution_fh_4, elements_to_write_4
+      integer(kind=MPI_OFFSET_KIND) :: offset_4
+      integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status
 
       comm_4 = comm
-      solution_count_4 = 1
-
-      global_dims_4 = global_dims
-      block_dims_4 = block_dims
-      block_begin_4 = block_begin
-
-      ! Specify the block setup as vector with stride
-      call MPI_TYPE_VECTOR(num_blocks_4, block_length_4, block_stride_4, MPI_DOUBLE_PRECISION, block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_COMMIT(block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      ! Get extent
-      call MPI_TYPE_GET_EXTENT(block_type, starting_offset_4, extent_4, ierr_4)
-
-      ! Reshape the block to start and end at the correct places
-      call MPI_TYPE_CREATE_RESIZED(block_type, starting_offset_4, extent_4, reshaped_block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_COMMIT(reshaped_block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      ! Specify the block dimensions in the global space.
-      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, global_dims_4, block_dims_4, block_begin_4, &
-         MPI_ORDER_C, MPI_DOUBLE_PRECISION, file_type, ierr_4) ! The order is C because the matrix has been indexed using a global index with row major order. Should not effect performance.
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_COMMIT(file_type, ierr_4)
-      call check_error_mpi(ierr_4)
+      offset_4 = 0
+      elements_to_write_4 = 1
 
       ! Write the solution to the file
       call MPI_FILE_OPEN(comm_4, solution_filename, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, &
          solution_fh_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_SET_VIEW(solution_fh_4, solution_offset, MPI_DOUBLE_PRECISION, file_type, "native", MPI_INFO_NULL, ierr_4)
+      call MPI_FILE_SET_VIEW(solution_fh_4, offset_4, MPI_DOUBLE_PRECISION, &
+         block_data_layout%global_block_type_4, "native", MPI_INFO_NULL, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_WRITE_ALL(solution_fh_4, solution_buffer, solution_count_4, reshaped_block_type, solution_status, ierr_4)
+      call MPI_FILE_WRITE_ALL(solution_fh_4, block_data, elements_to_write_4, &
+         block_data_layout%true_block_type_4, solution_status, ierr_4)
       call check_error_mpi(ierr_4)
 
       ! Clean up
       call MPI_FILE_CLOSE(solution_fh_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_TYPE_FREE(reshaped_block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_FREE(block_type, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_FREE(file_type, ierr_4)
-      call check_error_mpi(ierr_4)
-   end subroutine write_to_file_mpi_wrapper
+   end subroutine write_block_data_to_file
 
    !> This subroutine checks for an MPI error and aborts if there is one
    subroutine check_error_mpi(ierr_4_input)

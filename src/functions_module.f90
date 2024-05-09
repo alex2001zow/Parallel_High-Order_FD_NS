@@ -4,18 +4,19 @@ implicit none
 private
 
 abstract interface
-   pure subroutine FunctionInterface(ndims, global_begin_indices, local_indices, &
+   pure subroutine FunctionInterface(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims
+      integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
       real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
 
-      real, intent(inout) :: func_val
+      real, dimension(num_elements), intent(inout) :: func_val
 
    end subroutine FunctionInterface
 end interface
 
 type :: FunctionPtrType
+   integer :: output_size
    procedure(FunctionInterface), pointer, nopass :: func => null()
 end type FunctionPtrType
 
@@ -32,14 +33,25 @@ public :: calculate_point
 
 contains
 
-pure subroutine set_function_pointers(initial_func, boundary_func, rhs_func, rhs_derivative_func, analytical_func, funcPair)
+pure subroutine set_function_pointers(output_size, initial_func, boundary_func, &
+   rhs_func, rhs_derivative_func, analytical_func, funcPair)
+   integer, dimension(5), intent(in) :: output_size
    procedure(FunctionInterface) :: initial_func, boundary_func, rhs_func, rhs_derivative_func, analytical_func
-   type(FunctionPair), intent(inout) :: funcPair
+   type(FunctionPair), intent(out) :: funcPair
 
+   funcPair%initial_condition_func%output_size = output_size(1)
    funcPair%initial_condition_func%func => initial_func
+
+   funcPair%boundary_condition_func%output_size = output_size(2)
    funcPair%boundary_condition_func%func => boundary_func
+
+   funcPair%rhs_func%output_size = output_size(3)
    funcPair%rhs_func%func => rhs_func
+
+   funcPair%rhs_derivative_func%output_size = output_size(4)
    funcPair%rhs_derivative_func%func => rhs_derivative_func
+
+   funcPair%analytical_func%output_size = output_size(5)
    funcPair%analytical_func%func => analytical_func
 
 end subroutine set_function_pointers
@@ -48,7 +60,7 @@ pure subroutine calculate_point(ndims, global_begin_indices, local_indices, glob
    integer, intent(in) :: ndims
    integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices
    real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   real, dimension(ndims), intent(inout) :: point
+   real, dimension(ndims), intent(out) :: point
 
    integer, dimension(ndims) :: block_index
 

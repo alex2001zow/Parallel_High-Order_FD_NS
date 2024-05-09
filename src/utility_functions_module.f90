@@ -4,16 +4,17 @@ module utility_functions_module
    private
    public :: IDX_XD, IDX_XD_INV
    public :: print_real_array, print_integer_array
-   public :: open_txt_file, close_txt_file
-   public :: read_input_from_command_line, swap_pointers, sleeper_function
+   public :: open_txt_file, close_txt_file, read_input_from_command_line
+   public :: calculate_dx, swap_pointers
+   public :: sleeper_function
 
 contains
 
    !> Global index from ndims, dims, indices.
    pure subroutine IDX_XD(ndims, dims, indices, global_index)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: dims, indices
-      integer , intent(inout) :: global_index
+      integer, dimension(:), intent(in) :: dims, indices
+      integer, intent(out) :: global_index
 
       integer :: d, stride
 
@@ -32,8 +33,8 @@ contains
    !> Dimensional indices from ndims, dims, global_index.
    pure subroutine IDX_XD_INV(ndims, dims, global_index, indices)
       integer, intent(in) :: ndims, global_index
-      integer, dimension(ndims), intent(in) :: dims
-      integer, dimension(ndims), intent(inout) :: indices
+      integer, dimension(:), intent(in) :: dims
+      integer, dimension(:), intent(out) :: indices
 
       integer :: d, remaining_index, stride
 
@@ -141,7 +142,7 @@ contains
 
    !> Routine to open a file for writing
    subroutine open_txt_file(filename, rank, iounit)
-      character(255), intent(in) :: filename
+      character(len=*), intent(in) :: filename
       integer, intent(in) :: rank
 
       integer :: iounit, ios
@@ -196,6 +197,15 @@ contains
          end if
       end do
    end subroutine read_input_from_command_line
+
+   !> Routine to calculate the grid spacing dx. This can return negative values if the domain is reversed. Pretty sure we always want positive values due to the way we calculate the stencils.
+   pure subroutine calculate_dx(domain_begin, domain_end, grid_size_with_ghosts, dx)
+      real, dimension(:), intent(in) :: domain_begin, domain_end
+      integer, dimension(:), intent(in) :: grid_size_with_ghosts
+      real, dimension(:), intent(out) :: dx
+
+      dx = (domain_end - domain_begin) / (grid_size_with_ghosts - 1)
+   end subroutine calculate_dx
 
    pure subroutine swap_pointers(ptr1, ptr2)
       real, dimension(:), pointer, intent(inout) :: ptr1, ptr2
