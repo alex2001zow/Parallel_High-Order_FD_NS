@@ -25,7 +25,7 @@ module mpi_wrapper_module
       free_block_layout_type, write_block_data_to_file
    public :: initialize_mpi_wrapper, finalize_mpi_wrapper, create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper, change_MPI_COMM_errhandler_mpi_wrapper, original_MPI_COMM_errhandler_mpi_wrapper, &
-      cart_rank_mpi_wrapper, isendrecv_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper, &
+      cart_rank_mpi_wrapper, waitall_mpi_wrapper, free_communicator_mpi_wrapper, all_reduce_mpi_wrapper, &
       check_openmpi_version
 
 contains
@@ -55,6 +55,7 @@ contains
 
    end subroutine finalize_mpi_wrapper
 
+   !> This subroutine is a wrapper for the MPI_SENDRECV function
    subroutine isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
 
       integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
@@ -69,6 +70,7 @@ contains
 
    end subroutine isend_mpi_wrapper
 
+   !> This subroutine is a wrapper for the MPI_IRECV functions.
    subroutine irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
 
       integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
@@ -82,19 +84,6 @@ contains
       recv_request_8 = recv_request_4
 
    end subroutine irecv_mpi_wrapper
-
-   !> Subroutine wrapper for a non-blocking send and recieve operations
-   subroutine isendrecv_mpi_wrapper(array_size, send_array, recv_array, array_start_index, count, &
-      sendrecv_rank, comm, send_request_8, recv_request_8)
-
-      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(:), intent(inout) :: send_array, recv_array
-      integer, intent(out) :: send_request_8, recv_request_8
-
-      call isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
-      call irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
-
-   end subroutine isendrecv_mpi_wrapper
 
    !> Subroutine wrapper for a wait all operation
    subroutine waitall_mpi_wrapper(num_requests_8, requests_8)
@@ -111,19 +100,16 @@ contains
       requests_8 = requests_4
    end subroutine waitall_mpi_wrapper
 
-   !> This subroutine creates a cartesian communicator
-   subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, comm_cart_8)
+   !> This subroutine creates a cartesian communicator. We need to incoropate the periods as an input.
+   subroutine create_cart_communicator_mpi_wrapper(ndims_8, dims_8, periods_8, reorder_8, comm_cart_8)
       integer, intent(in) :: ndims_8
+      logical, intent(in) :: reorder_8
       integer, dimension(:), intent(in) :: dims_8
+      logical, dimension(:), intent(in) :: periods_8
       integer, intent(out) :: comm_cart_8
 
-      logical(kind=4) :: periods_4(ndims_8)
-      logical(kind=4) :: reorder_4 = .TRUE.
-
-      periods_4 = .FALSE.
-
       call MPI_CART_CREATE(int(MPI_COMM_WORLD,kind=4), int(ndims_8,kind=4), int(dims_8,kind=4),&
-         periods_4, reorder_4, comm_cart_4, ierr_4)
+         logical(periods_8,kind=4), logical(reorder_8,kind=4), comm_cart_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       comm_cart_8 = comm_cart_4
@@ -225,11 +211,15 @@ contains
    end subroutine all_reduce_mpi_wrapper
 
    !> Subroutine to define the whole block, the true block and the offset for writing to a file.
-   subroutine define_block_layout(ndims, elements_per_index, grid_size, ghost_begin_c, ghost_end_c, &
-      global_begin_c, global_dims, extended_global_begin_c, extended_global_dims, &
-      block_begin_c, block_dims, extended_block_begin_c, extended_block_dims, block_data_layout)
+   subroutine define_block_layout(ndims, elements_per_index, grid_size, &
+      bc_begin_c, bc_end_c, ghost_begin_c, ghost_end_c, &
+      global_begin_c, global_dims, &
+      extended_global_begin_c, extended_global_dims, &
+      block_begin_c, block_dims, &
+      extended_block_begin_c, extended_block_dims, &
+      block_data_layout)
       integer :: ndims, elements_per_index
-      integer, dimension(ndims), intent(in) :: grid_size, ghost_begin_c, ghost_end_c
+      integer, dimension(ndims), intent(in) :: grid_size, bc_begin_c, bc_end_c, ghost_begin_c, ghost_end_c
       integer, dimension(ndims), intent(in) :: global_begin_c, global_dims, extended_global_begin_c, extended_global_dims
       integer, dimension(ndims), intent(in) :: block_begin_c, block_dims, extended_block_begin_c, extended_block_dims
       type(block_data_layout_type), intent(inout) :: block_data_layout
@@ -309,7 +299,7 @@ contains
 
    end subroutine create_send_recv_layout
 
-   !> Subroutine to send and recieve data to and from neighbors using the send and recieve types
+   !> Subroutine to send and recieve data to and from neighbors using the send and recieve types. Split this into two subroutines to make it easier to use. And to open the receive then compute and then send.
    subroutine sendrecv_data_to_neighbors(block_data_layout, matrix, comm_cart, &
       neighbor_rank, neighbor_index, send_request, recv_request)
       type(block_data_layout_type), intent(in) :: block_data_layout

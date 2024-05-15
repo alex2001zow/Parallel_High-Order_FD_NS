@@ -46,7 +46,7 @@ contains
       stencil_sizes = 3
 
       ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1e-6, 10000, 2, solver_params)
+      call set_SolverParamsType(1e-6, 1e-2, 10000, 2, solver_params)
 
       call nonlinear_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
          stencil_sizes, solver_params)
@@ -86,6 +86,7 @@ contains
 
       integer, dimension(5) :: num_data_elements
 
+      integer, dimension(ndims) ::  bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end
       integer, dimension(ndims) ::  begin, end
       integer :: iounit
       real, dimension(4) :: result_array_with_timings
@@ -99,6 +100,13 @@ contains
 
       num_data_elements = 1
 
+      bc_begin = 0
+      bc_end = 0
+      ghost_begin = stencil_sizes/2
+      ghost_end = stencil_sizes/2
+      stencil_begin = stencil_sizes/2
+      stencil_end = stencil_sizes/2
+
       call set_SystemSolver_pointer(nonlinear_1D_solve_system, SystemSolver)
 
       call set_function_pointers(num_data_elements, initial_nonlinear_test, boundary_nonlinear_test, &
@@ -108,8 +116,8 @@ contains
 
       !call sleeper_function(1)
 
-      call create_block_type(ndims, num_data_elements(1), num_data_elements(1), grid_size * 0, stencil_sizes, &
-         domain_begin, domain_end, grid_size, comm_params, block_params)
+      call create_block_type(ndims, num_data_elements(1), num_data_elements(1), domain_begin, domain_end, grid_size, comm_params, &
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
       call create_finite_difference_stencils(block_params%ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 

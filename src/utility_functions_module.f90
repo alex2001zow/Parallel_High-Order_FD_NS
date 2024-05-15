@@ -42,10 +42,11 @@ contains
       remaining_index = global_index - 1
 
       ! Start with the product of all dimensions except the last one
-      stride = 1
-      do d = 2, ndims
-         stride = stride * dims(d)
-      end do
+      stride = product(dims(2:ndims))
+      !stride = 1
+      !do d = 2, ndims
+      !   stride = stride * dims(d)
+      !end do
 
       do d = 1, ndims-1
          indices(d) = (remaining_index / stride) + 1
@@ -207,6 +208,7 @@ contains
       dx = (domain_end - domain_begin) / (grid_size_with_ghosts - 1)
    end subroutine calculate_dx
 
+   !> Subroutine to swap two pointers
    pure subroutine swap_pointers(ptr1, ptr2)
       real, dimension(:), pointer, intent(inout) :: ptr1, ptr2
       real, dimension(:), pointer :: temp_ptr

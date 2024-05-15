@@ -12,7 +12,9 @@ module comm_module
 
    type comm_type
       integer :: ndims, rank, world_size, comm
+      logical :: reorder
       integer, dimension(:), allocatable :: processor_dim, coords
+      logical, dimension(:), allocatable :: periods
    end type comm_type
 
    public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, print_cartesian_grid, &
@@ -34,21 +36,26 @@ contains
       call allocate_cart_comm_type(ndims, comm_output)
 
       comm_output%processor_dim = processor_dim
+      comm_output%periods = .false.
+      comm_output%reorder = .true.
 
-      call create_cart_communicator(ndims, processor_dim, comm_output%comm)
+      call create_cart_communicator(comm_output%ndims, comm_output%processor_dim, comm_output%periods, &
+         comm_output%reorder, comm_output%comm)
 
       call get_cart_coords(comm_output%comm, rank, ndims, comm_output%coords)
 
    end subroutine create_cart_comm_type
 
    !> Create a cartesian communicator in OpenMPI
-   subroutine create_cart_communicator(ndims, processor_dim, cart_comm)
+   subroutine create_cart_communicator(ndims, processor_dim, periods, reorder, cart_comm)
       integer, intent(in) :: ndims
+      logical, intent(in) :: reorder
       integer, dimension(:), intent(in) :: processor_dim
+      logical, dimension(:), intent(in) :: periods
 
       integer, intent(out) :: cart_comm
 
-      call create_cart_communicator_mpi_wrapper(ndims, processor_dim, cart_comm)
+      call create_cart_communicator_mpi_wrapper(ndims, processor_dim, periods, reorder, cart_comm)
 
    end subroutine create_cart_communicator
 
@@ -68,9 +75,9 @@ contains
       integer, intent(in) :: ndims, cart_comm
       integer, dimension(:), intent(in) :: coords
       integer, dimension(:), intent(out) :: neighbors
-      integer, dimension(ndims), intent(out) :: begin_ghost_offset, end_ghost_offset, begin_stencil_offset, end_stencil_offset
+      integer, dimension(:), intent(out) :: begin_ghost_offset, end_ghost_offset, begin_stencil_offset, end_stencil_offset
 
-      integer :: global_index
+      integer :: global_index, num_nonzero
       integer, dimension(ndims) :: neighbor_array, indices, current_index
       integer :: rank_of_coords, error
 
@@ -87,6 +94,7 @@ contains
 
       neighbor_array = 3 ! This is the number of neighbors in each dimension
 
+      ! Run through all the neighbors
       do global_index = 1, 3**ndims
          call IDX_XD_INV(ndims, neighbor_array, global_index, current_index)
          current_index = current_index - 2 ! To go -1, 0, 1
@@ -95,11 +103,19 @@ contains
 
          call cart_rank_mpi_wrapper(cart_comm, ndims, indices, rank_of_coords, error)
 
+         num_nonzero = count(current_index /= 0)  ! Count the number of non-zero entries in current_index
+
+         !print *, "Coords: ", coords, "Current index: ", current_index, "Num nonzero: ", num_nonzero, &
+         !   "Rank: ", rank_of_coords, "Error: ", error
+
          ! error = 1 means no neighbor exists. We have true boundary.
          if(error == 1) then
             neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank. Should be replaced with a MPI_PROC_NULL. Do it in the constants module
-            begin_ghost_offset = min(begin_ghost_offset, current_index) ! Multiply with ghost size. Done elsewhere. Not sure this is correct.
-            end_ghost_offset = max(end_ghost_offset, current_index) ! Multiply with ghost size. Done elsewhere. Not sure this is correct.
+
+            if(ndims == 1 .or. num_nonzero /= ndims) then
+               begin_ghost_offset = min(begin_ghost_offset, current_index) ! Multiply with ghost size. Done elsewhere. Seems to be correct
+               end_ghost_offset = max(end_ghost_offset, current_index) ! Multiply with ghost size. Done elsewhere. Seems to be correct
+            end if
          else if(all(current_index == 0)) then
             neighbors(global_index) = neighbor_current_rank ! This is the current rank
          else
@@ -189,6 +205,7 @@ contains
       type(comm_type), intent(inout) :: comm
 
       allocate(comm%processor_dim(ndims))
+      allocate(comm%periods(ndims))
       allocate(comm%coords(ndims))
 
    end subroutine allocate_cart_comm_type
@@ -200,6 +217,7 @@ contains
       call free_communicator_mpi_wrapper(comm%comm)
 
       if(allocated(comm%processor_dim)) deallocate(comm%processor_dim)
+      if(allocated(comm%periods)) deallocate(comm%periods)
       if(allocated(comm%coords)) deallocate(comm%coords)
 
    end subroutine deallocate_cart_comm_type

@@ -230,9 +230,9 @@ contains
    pure subroutine apply_FDstencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, &
       coefficients, dims, index, matrix, val)
       integer, intent(in) :: ndims, num_elements, element_in_block
-      integer, dimension(ndims), intent(in) :: stencil_sizes, alphas, dims, index
-      real, dimension(product(stencil_sizes)), intent(in) :: coefficients
-      real, dimension(product(dims) * num_elements), intent(in) :: matrix
+      integer, dimension(:), intent(in) :: stencil_sizes, alphas, dims, index
+      real, dimension(:), intent(in) :: coefficients
+      real, dimension(:), intent(in) :: matrix
       real, intent(out) :: val
 
       real :: stencil_val, matrix_val
@@ -260,9 +260,9 @@ contains
    pure subroutine update_value_from_stencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, &
       coefficients, dims, index, matrix, f_val, val)
       integer, intent(in) :: ndims, num_elements, element_in_block
-      integer, dimension(ndims), intent(in) :: stencil_sizes, alphas, dims, index
-      real, dimension(product(stencil_sizes)), intent(in) :: coefficients
-      real, dimension(product(dims) * num_elements), intent(in) :: matrix
+      integer, dimension(:), intent(in) :: stencil_sizes, alphas, dims, index
+      real, dimension(:), intent(in) :: coefficients
+      real, dimension(:), intent(in) :: matrix
       real, intent(in) :: f_val
       real, intent(out) :: val
 
@@ -277,15 +277,15 @@ contains
       call apply_FDstencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, coefficients, dims, index, matrix, val)
 
       val = val - center_coefficient_value * matrix(global_matrix_index + element_in_block) ! Subtract the center coefficient times the matrix value.
-      val = (f_val - val) / center_coefficient_value ! Divide by the center coefficient to solve for the new value.
+      val = (f_val - val) / (center_coefficient_value+1e-6) ! Divide by the center coefficient to solve for the new value.
 
    end subroutine update_value_from_stencil
 
    !> Determine alpha and beta from a matrix index.
    pure subroutine determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index, alpha)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: stencil_sizes, matrix_begin, matrix_end, matrix_index
-      integer, dimension(ndims), intent(out) :: alpha
+      integer, dimension(:), intent(in) :: stencil_sizes, matrix_begin, matrix_end, matrix_index
+      integer, dimension(:), intent(out) :: alpha
 
       integer, dimension(ndims) :: elements_to_begin, elements_to_end, beta
 
@@ -303,8 +303,8 @@ contains
 
    pure subroutine global_2_alpha_beta(ndims, stencil_sizes, global_index, alphas, betas)
       integer, intent(in) :: ndims, global_index
-      integer, dimension(ndims), intent(in) :: stencil_sizes
-      integer, dimension(ndims), intent(out) :: alphas, betas
+      integer, dimension(:), intent(in) :: stencil_sizes
+      integer, dimension(:), intent(out) :: alphas, betas
 
       integer, dimension(ndims) :: current_index
 
@@ -317,7 +317,7 @@ contains
 
    pure subroutine alpha_2_global(ndims, stencil_sizes, alphas, global_index)
       integer, intent(in) :: ndims
-      integer, dimension(ndims), intent(in) :: stencil_sizes, alphas
+      integer, dimension(:), intent(in) :: stencil_sizes, alphas
       integer, intent(out) :: global_index
 
       call IDX_XD(ndims, stencil_sizes, stencil_sizes - alphas, global_index)
@@ -326,7 +326,7 @@ contains
 
    pure subroutine global_2_start_end(ndims, num_derivatives, stencil_sizes, global_index, start_index, end_index)
       integer, intent(in) :: ndims, num_derivatives, global_index
-      integer, dimension(ndims), intent(in) :: stencil_sizes
+      integer, dimension(:), intent(in) :: stencil_sizes
       integer, intent(out) :: start_index, end_index
 
       integer :: num_stencil_elements
@@ -341,9 +341,9 @@ contains
    pure subroutine get_FD_coefficients_from_index(ndims, num_derivatives, stencil_sizes, start_dims, dims, index, &
       coefficients, alpha, pointer_to_coefficients)
       integer, intent(in) :: ndims, num_derivatives
-      integer, dimension(ndims), intent(in) :: stencil_sizes, start_dims, dims, index
+      integer, dimension(:), intent(in) :: stencil_sizes, start_dims, dims, index
       real, dimension(:), target, intent(inout) :: coefficients
-      integer, dimension(ndims), intent(out) :: alpha
+      integer, dimension(:), intent(out) :: alpha
       real, dimension(:), pointer, intent(out) :: pointer_to_coefficients
 
       integer :: global_index, start_index, end_index
@@ -362,7 +362,7 @@ contains
    !> Routine to scale the finite difference coefficients depending on the grid spacing(dx)
    pure subroutine calculate_scaled_coefficients(ndims, dx, FDstencil_type_input)
       integer, intent(in) :: ndims
-      real, dimension(ndims), intent(in) :: dx
+      real, dimension(:), intent(in) :: dx
       type(FDstencil_type), target, intent(inout) :: FDstencil_type_input
 
       integer :: global_index, start_index, end_index

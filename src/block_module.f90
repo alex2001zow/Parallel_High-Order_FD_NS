@@ -13,9 +13,10 @@ module block_module
       integer :: ndims, elements_per_index, used_elements_per_index
       integer :: num_elements, extended_num_elements
       real, dimension(:), allocatable :: domain_begin, domain_end, dx
-      integer, dimension(:), allocatable :: ghost_size
-      integer, dimension(:), allocatable :: stencil_size
-      integer, dimension(:), allocatable :: grid_size, grid_size_with_ghosts
+      integer, dimension(:), allocatable :: grid_size, total_grid_size
+      integer, dimension(:), allocatable :: bc_begin, bc_end
+      integer, dimension(:), allocatable :: ghost_begin, ghost_end
+      integer, dimension(:), allocatable :: stencil_begin, stencil_end
 
       integer, dimension(:), allocatable :: begin_ghost_offset, end_ghost_offset
       integer, dimension(:), allocatable :: begin_stencil_offset, end_stencil_offset
@@ -27,7 +28,9 @@ module block_module
       integer, dimension(:), allocatable :: block_begin_c, block_end_c, block_dims
       integer, dimension(:), allocatable :: extended_block_begin_c, extended_block_end_c, extended_block_dims
 
-      real, dimension(:), allocatable :: matrix, f_array, temp_array
+      real, dimension(:), allocatable :: matrix, f_matrix, temp_matrix
+
+      real, dimension(:), pointer :: matrix_ptr, f_matrix_ptr, temp_matrix_ptr
 
       type(block_data_layout_type) :: data_layout
    end type block_type
@@ -36,12 +39,12 @@ module block_module
 
 contains
 
-   !> Subroutine to allocate the block structure.
-   subroutine create_block_type(ndims, elements_per_index, used_elements_per_index, ghost_size, stencil_size, &
-      domain_begin, domain_end, grid_size, comm, block_output)
+   !> Subroutine to allocate the block structure. We do not use bc_begin and bc_end yet. Not sure we need them.
+   subroutine create_block_type(ndims, elements_per_index, used_elements_per_index, domain_begin, domain_end, grid_size, comm, &
+      bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, block_output)
       integer, intent(in) :: ndims, elements_per_index, used_elements_per_index
-      real, dimension(ndims), intent(in) :: domain_begin, domain_end
-      integer, dimension(ndims), intent(in) :: grid_size, ghost_size, stencil_size
+      real, dimension(:), intent(in) :: domain_begin, domain_end
+      integer, dimension(:), intent(in) :: grid_size, bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end
       type(comm_type), intent(in) :: comm
       type(block_type), intent(out) :: block_output
 
@@ -53,27 +56,34 @@ contains
 
       block_output%domain_begin = domain_begin
       block_output%domain_end = domain_end
-      block_output%ghost_size = ghost_size
-      block_output%stencil_size = stencil_size
       block_output%grid_size = grid_size
-      block_output%grid_size_with_ghosts = grid_size + ghost_size
+      block_output%bc_begin = bc_begin
+      block_output%bc_end = bc_end
+      block_output%ghost_begin = ghost_begin
+      block_output%ghost_end = ghost_end
+      block_output%stencil_begin = stencil_begin
+      block_output%stencil_end = stencil_end
+      block_output%total_grid_size = grid_size + (ghost_begin + ghost_end) + (stencil_begin + stencil_end)
 
-      call calculate_dx(block_output%domain_begin, block_output%domain_end, block_output%grid_size_with_ghosts, block_output%dx)
+      call calculate_dx(block_output%domain_begin, block_output%domain_end, block_output%total_grid_size, block_output%dx)
 
-      call setup_block_data_layout_type(ndims, elements_per_index, grid_size, comm%processor_dim, ghost_size/2, ghost_size/2, &
-         stencil_size/2, stencil_size/2, comm%coords, comm%comm, block_output)
+      call setup_block_data_layout_type(ndims, elements_per_index, grid_size, comm%processor_dim, &
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, &
+         comm%coords, comm%comm, block_output)
 
       allocate(block_output%matrix(block_output%extended_num_elements))
+
+      call setup_matrix_pointers(block_output)
 
    end subroutine create_block_type
 
    ! Setup the block data layout type using 0-based indexing due to OpenMPI.
    subroutine setup_block_data_layout_type(ndims, elements_per_index, grid_size, processor_dims, &
-      ghost_begin, ghost_end, stencil_begin, stencil_end, &
+      bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, &
       coords, comm, block_inout)
       integer, intent(in) :: ndims, elements_per_index, comm
       integer, dimension(:), intent(in) :: grid_size, processor_dims
-      integer, dimension(:), intent(in) :: ghost_begin, ghost_end, stencil_begin, stencil_end, coords
+      integer, dimension(:), intent(in) :: bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, coords
       type(block_type), target, intent(inout) :: block_inout
 
       type(block_data_layout_type), pointer:: block_data_layout
@@ -165,7 +175,7 @@ contains
       block_inout%extended_block_dims = extended_block_dims
 
       ! Define the block data layout
-      call define_block_layout(ndims, elements_per_index, grid_size, ghost_begin, ghost_end, &
+      call define_block_layout(ndims, elements_per_index, grid_size, bc_begin, bc_end, ghost_begin, ghost_end, &
          global_begin_c, global_dims, extended_global_begin_c, extended_global_dims, &
          block_begin_c, block_dims, extended_block_begin_c, extended_block_dims, &
          block_data_layout)
@@ -201,16 +211,17 @@ contains
    end subroutine setup_block_data_layout_type
 
    !> Subroutine to send and recieve between neighbors.
-   subroutine sendrecv_data_neighbors(comm, block_input)
+   subroutine sendrecv_data_neighbors(comm, block_input, matrix)
       integer, intent(in) :: comm
       type(block_type), intent(inout) :: block_input
+      real, dimension(:), intent(inout) :: matrix
 
       integer :: neighbor_index, neighbor_rank
       integer, dimension(block_input%data_layout%number_of_existing_neighbors*2) :: sendrecv_request
 
       do neighbor_index = 1, block_input%data_layout%number_of_existing_neighbors
          neighbor_rank = block_input%data_layout%neighbor_ranks(neighbor_index)
-         call sendrecv_data_to_neighbors(block_input%data_layout, block_input%matrix, comm, neighbor_rank, neighbor_index, &
+         call sendrecv_data_to_neighbors(block_input%data_layout, matrix, comm, neighbor_rank, neighbor_index, &
             sendrecv_request(neighbor_index), &
             sendrecv_request(neighbor_index + block_input%data_layout%number_of_existing_neighbors))
       end do
@@ -219,17 +230,31 @@ contains
 
    end subroutine sendrecv_data_neighbors
 
+   !> Setup pointers to the matrix, f_matrix, and temp_matrix.
+   pure subroutine setup_matrix_pointers(block_input)
+      type(block_type), intent(inout), target :: block_input
+
+      block_input%matrix_ptr => block_input%matrix
+      block_input%f_matrix_ptr => block_input%f_matrix
+      block_input%temp_matrix_ptr => block_input%temp_matrix
+
+   end subroutine setup_matrix_pointers
+
    !> Subroutine to allocate the block structure.
-   subroutine allocate_block_type(block_input)
+   pure subroutine allocate_block_type(block_input)
       type(block_type), intent(inout) :: block_input
 
       allocate(block_input%domain_begin(block_input%ndims))
       allocate(block_input%domain_end(block_input%ndims))
       allocate(block_input%dx(block_input%ndims))
-      allocate(block_input%ghost_size(block_input%ndims))
-      allocate(block_input%stencil_size(block_input%ndims))
       allocate(block_input%grid_size(block_input%ndims))
-      allocate(block_input%grid_size_with_ghosts(block_input%ndims))
+      allocate(block_input%total_grid_size(block_input%ndims))
+      allocate(block_input%bc_begin(block_input%ndims))
+      allocate(block_input%bc_end(block_input%ndims))
+      allocate(block_input%ghost_begin(block_input%ndims))
+      allocate(block_input%ghost_end(block_input%ndims))
+      allocate(block_input%stencil_begin(block_input%ndims))
+      allocate(block_input%stencil_end(block_input%ndims))
 
       allocate(block_input%begin_ghost_offset(block_input%ndims))
       allocate(block_input%end_ghost_offset(block_input%ndims))
@@ -263,10 +288,15 @@ contains
 
       if(allocated(block_input%domain_begin)) deallocate(block_input%domain_begin)
       if(allocated(block_input%domain_end)) deallocate(block_input%domain_end)
-      if(allocated(block_input%grid_size)) deallocate(block_input%grid_size)
-      if(allocated(block_input%ghost_size)) deallocate(block_input%ghost_size)
-      if(allocated(block_input%grid_size_with_ghosts)) deallocate(block_input%grid_size_with_ghosts)
       if(allocated(block_input%dx)) deallocate(block_input%dx)
+      if(allocated(block_input%grid_size)) deallocate(block_input%grid_size)
+      if(allocated(block_input%total_grid_size)) deallocate(block_input%total_grid_size)
+      if(allocated(block_input%bc_begin)) deallocate(block_input%bc_begin)
+      if(allocated(block_input%bc_end)) deallocate(block_input%bc_end)
+      if(allocated(block_input%ghost_begin)) deallocate(block_input%ghost_begin)
+      if(allocated(block_input%ghost_end)) deallocate(block_input%ghost_end)
+      if(allocated(block_input%stencil_begin)) deallocate(block_input%stencil_begin)
+      if(allocated(block_input%stencil_end)) deallocate(block_input%stencil_end)
 
       if(allocated(block_input%begin_ghost_offset)) deallocate(block_input%begin_ghost_offset)
       if(allocated(block_input%end_ghost_offset)) deallocate(block_input%end_ghost_offset)
@@ -293,8 +323,8 @@ contains
       if(allocated(block_input%extended_block_dims)) deallocate(block_input%extended_block_dims)
 
       if(allocated(block_input%matrix)) deallocate(block_input%matrix)
-      if(allocated(block_input%f_array)) deallocate(block_input%f_array)
-      if(allocated(block_input%temp_array)) deallocate(block_input%temp_array)
+      if(allocated(block_input%f_matrix)) deallocate(block_input%f_matrix)
+      if(allocated(block_input%temp_matrix)) deallocate(block_input%temp_matrix)
 
       call free_block_layout_type(block_input%data_layout)
 
@@ -323,10 +353,14 @@ contains
       write(iounit, *) "domain_begin: ", block_input%domain_begin
       write(iounit, *) "domain_end: ", block_input%domain_end
       write(iounit, *) "dx: ", block_input%dx
-      write(iounit, *) "ghost_size: ", block_input%ghost_size
-      write(iounit, *) "stencil_size: ", block_input%stencil_size
       write(iounit, *) "grid_size: ", block_input%grid_size
-      write(iounit, *) "grid_size_with_ghosts: ", block_input%grid_size_with_ghosts
+      write(iounit, *) "total_grid_size: ", block_input%total_grid_size
+      write(iounit, *) "bc_begin: ", block_input%bc_begin
+      write(iounit, *) "bc_end: ", block_input%bc_end
+      write(iounit, *) "ghost_begin: ", block_input%ghost_begin
+      write(iounit, *) "ghost_end: ", block_input%ghost_end
+      write(iounit, *) "stencil_begin: ", block_input%stencil_begin
+      write(iounit, *) "stencil_end: ", block_input%stencil_end
 
       write(iounit, *)
 

@@ -31,7 +31,7 @@ contains
       real, dimension(:), allocatable :: domain_begin, domain_end
       type(SolverParamsType) :: solver_params
 
-      ndims = 2
+      ndims = 1
 
       allocate(grid_size(ndims))
       allocate(processor_dims(ndims))
@@ -46,7 +46,7 @@ contains
       stencil_sizes = 3
 
       ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1e-6, 10000, 2, solver_params)
+      call set_SolverParamsType(1e-6, 1e-2, 10000, 2, solver_params)
 
       call block_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
          stencil_sizes, solver_params)
@@ -86,7 +86,7 @@ contains
 
       integer, dimension(5) :: num_data_elements
 
-      integer, dimension(ndims) ::  begin, end, temp_ghost_size, temp_stencil_size
+      integer, dimension(ndims) ::  bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end
       integer :: iounit
       real, dimension(4) :: result_array_with_timings
 
@@ -95,21 +95,25 @@ contains
 
       num_data_elements = 1
 
-      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
+      bc_begin = 1
+      bc_end = 1
+      ghost_begin = stencil_sizes/2
+      ghost_end = stencil_sizes/2
+      stencil_begin = stencil_sizes/2
+      stencil_end = stencil_sizes/2
 
-      temp_ghost_size = 2
-      temp_stencil_size = stencil_sizes
+      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
 
       !call sleeper_function(1)
 
-      call create_block_type(ndims, num_data_elements(1), num_data_elements(1), temp_ghost_size, temp_stencil_size, &
-         domain_begin, domain_end, grid_size, comm_params, block_params)
+      call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
       block_params%matrix = rank
 
       !print *, "Before sendrecv: ", "Rank: ", rank, " has the following matrix: ", block_params%matrix
 
-      call sendrecv_data_neighbors(comm_params%comm, block_params)
+      call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
       !call sendrecv_data_neighbors(comm_params%comm, block_params)
 

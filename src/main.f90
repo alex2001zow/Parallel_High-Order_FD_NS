@@ -9,6 +9,7 @@ subroutine run_simulation()
    use utility_functions_module, only: read_input_from_command_line
    use mpi_wrapper_module, only: initialize_mpi_wrapper, finalize_mpi_wrapper
 
+   use FD_test_module, only: FD_test_main
    use block_test_module, only: block_test_main
    use poisson_module, only: Poisson_main
    use nonlinear_test_module, only: nonlinear_1D_test_main
@@ -24,6 +25,8 @@ subroutine run_simulation()
    ! Initialize MPI
    call initialize_mpi_wrapper(rank, world_size)
 
+   ! Test cases
+   !call FD_test_main(rank, world_size)
    !call block_test_main(rank, world_size)
 
    ! Call the main simulation routine
