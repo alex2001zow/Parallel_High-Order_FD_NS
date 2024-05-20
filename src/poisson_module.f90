@@ -11,7 +11,7 @@ module Poisson_module
    use block_module, only: block_type, create_block_type, deallocate_block_type, sendrecv_data_neighbors, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers, calculate_point
 
-   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, sleeper_function
+   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers
    use initialization_module, only: write_initial_condition_and_boundary
 
    use solver_module, only: SolverPtrType, set_SystemSolver_pointer, SolverParamsType, set_SolverParamsType, &
@@ -19,6 +19,8 @@ module Poisson_module
    implicit none
 
    private
+
+   real, parameter :: omega = 1.0
 
    public :: Poisson_main
 
@@ -34,7 +36,7 @@ contains
 
       !call sleeper_function(1)
 
-      ndims = 2
+      ndims = 1
 
       allocate(grid_size(ndims))
       allocate(processor_dims(ndims))
@@ -42,14 +44,14 @@ contains
       allocate(domain_end(ndims))
       allocate(stencil_sizes(ndims))
 
-      grid_size = 32
+      grid_size = 64
       processor_dims = 1
       domain_begin = 0
       domain_end = 1
-      stencil_sizes = 3
+      stencil_sizes = 5
 
       ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1e-6, 1e-2, 100000, 2, solver_params)
+      call set_SolverParamsType(1e-32, 1e-1, 500000, 2, solver_params)
 
       if(ndims == 1) then
          call Poission_1D_analytical(rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
@@ -140,23 +142,16 @@ contains
       type(comm_type) :: comm_params
       type(FDstencil_type) :: FDstencil_params
       type(block_type) :: block_params
-      type(FunctionPair) :: funcs_params
-      type(SolverPtrType) :: SystemSolver
       type(ResultType) :: result
 
       bc_begin = 0
       bc_end = 0
-      ghost_begin = stencil_sizes/2
-      ghost_end = stencil_sizes/2
+      ghost_begin = 0!stencil_sizes/2
+      ghost_end = 0!stencil_sizes/2
       stencil_begin = stencil_sizes/2
       stencil_end = stencil_sizes/2
 
       num_data_elements = [1,1,1,1,1]
-
-      call set_SystemSolver_pointer(Poisson_solve_system, SystemSolver)
-
-      call set_function_pointers(num_data_elements, initial_poisson, boundary_poisson, &
-         f_analytical_poisson, df_analytical_poisson, u_analytical_poisson, funcs_params)
 
       call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
 
@@ -165,16 +160,9 @@ contains
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
-      ! Initialize the block
-      call write_initial_condition_and_boundary(ndims, num_data_elements(1), domain_begin, domain_end, &
-         block_params%total_grid_size, block_params%global_begin_c+1, block_params%extended_global_dims-1, &
-         block_params%matrix, block_params%dx, funcs_params)
+      call write_poisson_ic_bc(block_params)
 
       call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
-
-      ! Set the begin and end for the solver
-      begin = 2
-      end = block_params%block_dims
 
       !call sleeper_function(1)
 
@@ -183,11 +171,9 @@ contains
 
       ! Run the solver
       !call choose_iterative_solver(comm_params, block_params, FDstencil_params, &
-      !   funcs_params, SystemSolver, solver_params, &
-      !   begin, end, result)
+      !   funcs_params, SystemSolver, solver_params, result)
 
-      ! call GS_Method(comm_params, block_params, FDstencil_params, funcs_params, SystemSolver, solver_params, &
-      !    begin, end)
+      call GS_Method(comm_params, block_params, FDstencil_params, solver_params)
 
       result_array_with_timings(2) = MPI_WTIME()
 
@@ -266,76 +252,39 @@ contains
 
    end subroutine Poisson_solve_system
 
-   subroutine GS_Method(comm_params, block_params, FDstencil_params, funcs_params, SystemSolver, solver_params, &
-      begin, end)
+   subroutine GS_Method(comm_params, block_params, FDstencil_params, solver_params)
       type(comm_type), intent(in) :: comm_params
       type(block_type), intent(inout) :: block_params
       type(FDstencil_type), target, intent(inout) :: FDstencil_params
-      type(FunctionPair), intent(in) :: funcs_params
-      type(SolverPtrType), intent(in) :: SystemSolver
       type(SolverParamsType), intent(in) :: solver_params
-      integer, dimension(:), intent(in) :: begin, end
 
-      integer :: ndims, num_elements, num_stencil_elements, it, ii, jj, global_index, converged
-      real, dimension(comm_params%ndims) :: global_domain_begin, global_domain_end
-      integer, dimension(comm_params%ndims) :: start_dims, dims, index, alphas, global_domain_size, stencil_size
+      integer :: it, ii, jj, global_index, converged
+      integer, dimension(comm_params%ndims) :: indices, alphas
       real, dimension(4) :: norm_array
       real, dimension(:), pointer :: coefficients, dfxx, dfyy
       real :: old_val, new_val
       real, dimension(1) :: f_val
       real, dimension(product(FDstencil_params%stencil_sizes)) :: combined_stencils
 
-      stencil_size = FDstencil_params%stencil_sizes
+      !call dirichlet_condition_bc(block_params)
 
-      global_domain_begin = block_params%domain_begin
-      global_domain_end = block_params%domain_end
-      global_domain_size = block_params%local_size
-
-      ndims = comm_params%ndims
-
-      start_dims = block_params%extended_block_begin_c+1
-      dims = block_params%extended_block_dims
-
-      call calculate_scaled_coefficients(ndims, block_params%dx, FDstencil_params)
+      call calculate_scaled_coefficients(block_params%ndims, block_params%extended_grid_dx, FDstencil_params)
 
       norm_array = [1e3,1e6,1e9,1e12]
 
       converged = 0
       it = 0
       do while(converged /= 1 .and. it < solver_params%max_iter)
-         norm_array(1) = 0.0
-         do ii = begin(1), end(1)
-            do jj = begin(2), end(2)
-               index = [ii,jj]
-               call IDX_XD(ndims, dims, index, global_index)
+         call GS_iteration(block_params, FDstencil_params, norm_array(1))
 
-               old_val = block_params%matrix(global_index)
+         !call swap_pointers(block_params%matrix_ptr, block_params%temp_matrix_ptr)
 
-               call get_FD_coefficients_from_index(ndims, FDstencil_params%num_derivatives, FDstencil_params%stencil_sizes, &
-                  start_dims, dims, index, FDstencil_params%scaled_stencil_coefficients, alphas, coefficients)
-
-               dfxx => coefficients(1:FDstencil_params%num_stencil_elements)
-               dfyy => coefficients(FDstencil_params%num_stencil_elements + 1:2 * FDstencil_params%num_stencil_elements)
-
-               combined_stencils = dfxx + dfyy
-
-               call f_analytical_poisson(ndims, funcs_params%rhs_func%output_size, start_dims, index, &
-                  global_domain_begin, global_domain_end, global_domain_size, block_params%dx, f_val)
-
-               call update_value_from_stencil(ndims, 1, 0, stencil_size, alphas, combined_stencils, &
-                  dims, index, block_params%matrix, f_val(1), new_val)
-
-               block_params%matrix(global_index) = new_val
-
-               norm_array(1) = norm_array(1) + (abs(new_val - old_val))**2
-
-            end do
-         end do
+         !call dirichlet_condition_bc(block_params)
 
          call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
          call check_convergence(comm_params%comm, solver_params%tol, solver_params%divergence_tol, &
-            1.0/product(block_params%total_grid_size), norm_array, converged)
+            1.0/product(block_params%extended_grid_size), norm_array, converged)
          if(converged == -1 .and. it > 0) then
             write(*,*) "Convergence failed"
             exit
@@ -349,53 +298,151 @@ contains
 
    end subroutine GS_Method
 
-   !!!! POISSON EQUATION FUNCTIONS !!!!
+   subroutine GS_iteration(block_params, FDstencil_params, norm)
+      type(block_type), intent(inout) :: block_params
+      type(FDstencil_type), intent(inout) :: FDstencil_params
+      real, intent(out) :: norm
 
-   pure subroutine initial_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
+      integer, dimension(block_params%ndims) :: dims_to_run, begin, end
+      integer :: ii,jj, global_iter, global_index
+      integer, dimension(block_params%ndims) :: local_indices, global_indices, alphas
+      real, dimension(:), pointer :: coefficients, dfxx, dfyy
+      real :: old_val, new_val, f_val
+      real, dimension(block_params%ndims) :: point
+      real, dimension(product(FDstencil_params%stencil_sizes)) :: combined_stencils
 
-      real, dimension(num_elements), intent(inout) :: func_val
+      begin = (block_params%block_begin_c+1)
+      end = (block_params%block_end_c-1)
+      dims_to_run = end - (begin + 1) + 1
 
-      func_val = 20.0
+      norm = 0.0
+      do global_iter = 1, product(dims_to_run)
+         call IDX_XD_INV(block_params%ndims, dims_to_run, global_iter, local_indices)
 
-   end subroutine initial_poisson
+         local_indices = begin + local_indices
+         call IDX_XD(block_params%ndims, block_params%extended_block_dims, local_indices, global_index)
 
-   pure subroutine boundary_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
+         old_val = block_params%matrix_ptr(global_index)
 
-      real, dimension(num_elements), intent(inout) :: func_val
+         call get_FD_coefficients_from_index(block_params%ndims, FDstencil_params%num_derivatives, &
+            FDstencil_params%stencil_sizes, &
+            block_params%extended_block_begin_c+1, block_params%extended_block_dims, local_indices, &
+            FDstencil_params%scaled_stencil_coefficients, alphas, coefficients)
+         !print *, global_index, local_indices, alphas
 
-      integer, dimension(ndims) :: block_index
+         combined_stencils = 0.0
+         ! do ii = 1, FDstencil_params%num_derivatives
+         !    combined_stencils =
+         ! end do
+
+         dfxx => coefficients(1:FDstencil_params%num_stencil_elements)
+         !dfyy => coefficients(FDstencil_params%num_stencil_elements + 1:2 * FDstencil_params%num_stencil_elements)
+
+         combined_stencils = dfxx !+ dfyy
+
+         call calculate_point(block_params%ndims, block_params%global_begin_c-block_params%begin_ghost_offset, &
+            local_indices, block_params%domain_begin, block_params%grid_dx, point)
+
+         call f_analytical_poisson(block_params%ndims, point, f_val)
+         !print *, "F value: ", f_val, "Point: ", point
+
+         call update_value_from_stencil(block_params%ndims, 1, 0, FDstencil_params%stencil_sizes, alphas, combined_stencils, &
+            block_params%extended_block_dims, local_indices, block_params%matrix_ptr, f_val, new_val)
+
+         block_params%matrix_ptr(global_index) = (1.0-omega)*old_val + omega * new_val
+
+         norm = norm + (abs(new_val - old_val))**2
+
+      end do
+
+      ! do ii = block_params%block_begin_c(1)+2, block_params%block_end_c(1)-1
+      !    do jj = block_params%block_begin_c(2)+2, block_params%block_end_c(2)-1
+      !       indices = [ii,jj]
+      !       call IDX_XD(block_params%ndims, block_params%extended_block_dims, indices, global_index)
+      !       print*, "Global index: ", global_index, "Indices: ", indices
+
+      !       old_val = block_params%matrix(global_index)
+
+      !       call get_FD_coefficients_from_index(block_params%ndims, FDstencil_params%num_derivatives, &
+      !          FDstencil_params%stencil_sizes, &
+      !          block_params%extended_block_begin_c+1, block_params%extended_block_dims, indices, &
+      !          FDstencil_params%scaled_stencil_coefficients, alphas, coefficients)
+
+      !       dfxx => coefficients(1:FDstencil_params%num_stencil_elements)
+      !       dfyy => coefficients(FDstencil_params%num_stencil_elements + 1:2 * FDstencil_params%num_stencil_elements)
+
+      !       combined_stencils = dfxx + dfyy
+
+      !       call f_analytical_poisson(block_params%ndims, 1, block_params%extended_global_begin_c, indices, &
+      !          block_params%domain_begin, block_params%domain_end, block_params%extended_grid_size, block_params%dx, f_val)
+
+      !       call update_value_from_stencil(block_params%ndims, 1, 0, FDstencil_params%stencil_sizes, alphas, combined_stencils, &
+      !          block_params%extended_block_dims, indices, block_params%matrix_ptr, f_val(1), new_val)
+
+      !       block_params%matrix(global_index) = new_val
+
+      !       norm = norm + (abs(new_val - old_val))**2
+
+      !    end do
+      ! end do
+
+   end subroutine GS_iteration
+
+   subroutine write_poisson_ic_bc(block_params)
+      type(block_type), intent(inout) :: block_params
+
+      integer :: global_index
+      integer, dimension(block_params%ndims) :: local_indices, global_indices
+      real, dimension(block_params%ndims) :: point
       logical :: at_boundary
 
-      block_index = global_begin_indices + local_indices - 1
+      do global_index = 1,block_params%extended_num_elements
+         call IDX_XD_INV(block_params%ndims, block_params%extended_block_dims, global_index, local_indices)
+         global_indices = block_params%extended_global_begin_c + local_indices
 
-      at_boundary = any(block_index == 1 .or. block_index == global_domain_size)
+         at_boundary = any(global_indices == 1 .or. global_indices == block_params%grid_size)
 
-      if (at_boundary) then
-         call u_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-            global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      end if
+         if(at_boundary) then
+            call calculate_point(block_params%ndims, block_params%global_begin_c-block_params%begin_ghost_offset, &
+               local_indices, block_params%domain_begin, block_params%grid_dx, point)
+            call u_analytical_poisson(block_params%ndims, point, block_params%matrix(global_index))
+         else
+            block_params%matrix(global_index) = 20.0
+         end if
+      end do
 
-   end subroutine boundary_poisson
+   end subroutine write_poisson_ic_bc
 
-   pure subroutine f_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
+   subroutine dirichlet_condition_bc(block_params)
+      type(block_type), intent(inout) :: block_params
 
-      real, dimension(num_elements), intent(inout) :: func_val
+      integer :: ghost_point, num_ghost_points, left_begin, left_end, right_begin, right_end
 
-      real, dimension(ndims) :: point
+      ! Set the Dirichlet condition
+      num_ghost_points = product(block_params%begin_ghost_offset)
+      do ghost_point = 1,num_ghost_points
+         left_begin = ghost_point
+         left_end = 2*block_params%begin_ghost_offset(1) + 1 - (ghost_point-1)
 
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
+         block_params%matrix_ptr(left_begin) = -block_params%matrix_ptr(left_end)
+
+         right_begin = block_params%global_end_c(1) - block_params%end_ghost_offset(1) + ghost_point
+         right_end = block_params%extended_global_end_c(1) - (ghost_point-1)+1
+
+         !print *, "Right begin: ", right_begin, "Right end: ", right_end
+
+         block_params%matrix_ptr(right_end) = -block_params%matrix_ptr(right_begin)
+
+      end do
+
+   end subroutine dirichlet_condition_bc
+
+   !!!! POISSON EQUATION FUNCTIONS !!!!
+
+   pure subroutine f_analytical_poisson(ndims, point, func_val)
+      integer, intent(in) :: ndims
+      real, dimension(:), intent(in) :: point
+      real, intent(out) :: func_val
 
       func_val = -ndims*pi*pi*product(sin(pi*point))
 
@@ -403,33 +450,10 @@ contains
 
    end subroutine f_analytical_poisson
 
-   pure subroutine df_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-
-      real, dimension(num_elements), intent(inout) :: func_val
-
-      real, dimension(ndims) :: point
-
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
-
-      func_val = -ndims*pi*pi*pi*product(cos(pi*point))
-
-   end subroutine df_analytical_poisson
-
-   pure subroutine u_analytical_poisson(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-
-      real, dimension(num_elements), intent(inout) :: func_val
-
-      real, dimension(ndims) :: point
-
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
+   pure subroutine u_analytical_poisson(ndims, point, func_val)
+      integer, intent(in) :: ndims
+      real, dimension(:), intent(in) :: point
+      real, intent(out) :: func_val
 
       func_val = product(sin(pi*point))
 

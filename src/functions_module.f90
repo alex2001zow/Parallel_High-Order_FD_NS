@@ -4,7 +4,7 @@ implicit none
 private
 
 abstract interface
-   pure subroutine FunctionInterface(ndims, num_elements, global_begin_indices, local_indices, &
+   subroutine FunctionInterface(ndims, num_elements, global_begin_indices, local_indices, &
       global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
       integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
@@ -33,7 +33,7 @@ public :: calculate_point
 
 contains
 
-pure subroutine set_function_pointers(output_size, initial_func, boundary_func, &
+subroutine set_function_pointers(output_size, initial_func, boundary_func, &
    rhs_func, rhs_derivative_func, analytical_func, funcPair)
    integer, dimension(5), intent(in) :: output_size
    procedure(FunctionInterface) :: initial_func, boundary_func, rhs_func, rhs_derivative_func, analytical_func
@@ -65,7 +65,7 @@ pure subroutine calculate_point(ndims, global_begin_indices, local_indices, glob
    integer, dimension(ndims) :: block_index
 
    ! Calculate where in global space the point is
-   block_index = global_begin_indices + local_indices - 1
+   block_index = global_begin_indices + local_indices
 
    ! Calculate the point in the global domain
    point = global_domain_begin + (block_index - 1) * dx

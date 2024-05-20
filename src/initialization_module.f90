@@ -10,7 +10,7 @@ module initialization_module
 contains
 
    !> Write function values to a block
-   pure subroutine write_function_to_block(ndims, num_elements, global_domain_begin, global_domain_end, global_domain_size, &
+   subroutine write_function_to_block(ndims, num_elements, global_domain_begin, global_domain_end, global_domain_size, &
       global_begin_block, dims, buffer, dx, func)
       integer, intent(in) :: ndims, num_elements
       integer, dimension(ndims), intent(in) ::  global_domain_size, global_begin_block, dims
@@ -38,13 +38,13 @@ contains
    end subroutine write_function_to_block
 
    !> Initialize the buffer with the inital condition and the boundary condition
-   pure subroutine write_initial_condition_and_boundary(ndims, num_elements, &
+   subroutine write_initial_condition_and_boundary(ndims, num_elements, &
       global_domain_begin, global_domain_end, global_domain_size, &
       global_begin_block, dims, buffer, dx, functions_in)
       integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) ::  global_domain_size, global_begin_block, dims
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-      real, dimension(product(dims)*num_elements), intent(inout) :: buffer
+      integer, dimension(:), intent(in) ::  global_domain_size, global_begin_block, dims
+      real, dimension(:), intent(in) :: global_domain_begin, global_domain_end, dx
+      real, dimension(:), intent(inout) :: buffer
       type(FunctionPair), intent(in) :: functions_in
 
       integer :: global_index, index_start, index_end

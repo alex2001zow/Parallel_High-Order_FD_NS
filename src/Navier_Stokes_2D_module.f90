@@ -20,10 +20,10 @@ module Navier_Stokes_2D_module
 
    private
 
-   integer, parameter :: N_iterations = 20
+   integer, parameter :: N_iterations = 500
    integer, parameter :: N_Pressure_Poisson_iterations = 50
    real, parameter :: Pressure_Poisson_tol = 1e-6, Pressure_Poisson_divergence_tol = 1e-1
-   real, parameter :: system_rho = 1.0, system_nu = 0.1, system_u_lid = 1.0, system_dt = 0.0001
+   real, parameter :: system_rho = 1.0, system_nu = 0.1, system_u_lid = 1.0, system_dt = 0.001
    public :: Navier_Stokes_2D_main
 
 contains
@@ -99,21 +99,21 @@ contains
 
       bc_begin = 0
       bc_end = 0
-      ghost_begin = stencil_sizes/2
-      ghost_end = stencil_sizes/2
+      ghost_begin = 1
+      ghost_end = 1
       stencil_begin = stencil_sizes/2
       stencil_end = stencil_sizes/2
 
       call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         bc_begin, bc_end, ghost_begin*0, ghost_end*0, stencil_begin, stencil_end, u_block_params)
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, u_block_params)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         bc_begin, bc_end, ghost_begin*0, ghost_end*0, stencil_begin, stencil_end, v_block_params)
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, v_block_params)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         bc_begin*0, bc_end*0, ghost_begin, ghost_end, stencil_begin, stencil_end, p_block_params)
+         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, p_block_params)
 
       !call sleeper_function(1)
 
@@ -122,23 +122,24 @@ contains
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, p_FDstencil)
 
       ! Scale the coefficients by dx
-      call calculate_scaled_coefficients(ndims, u_block_params%dx, uv_FDstencil)
+      call calculate_scaled_coefficients(ndims, u_block_params%extended_grid_dx, uv_FDstencil)
 
-      call calculate_scaled_coefficients(ndims, p_block_params%dx, p_FDstencil)
+      call calculate_scaled_coefficients(ndims, p_block_params%extended_grid_dx, p_FDstencil)
 
+      allocate(u_block_params%temp_matrix_ptr(u_block_params%extended_num_elements))
+      allocate(v_block_params%temp_matrix_ptr(v_block_params%extended_num_elements))
       allocate(p_block_params%temp_matrix_ptr(p_block_params%extended_num_elements))
 
       ! Initialize the block
       u_block_params%matrix_ptr = 0.0
+      u_block_params%temp_matrix_ptr = 0.0
       v_block_params%matrix_ptr = 0.0
+      v_block_params%temp_matrix_ptr = 0.0
       p_block_params%matrix_ptr = 0.0
       p_block_params%temp_matrix_ptr = 0.0
 
-      !call test_pressure_bc(ndims, p_block_params%extended_block_dims, p_block_params%extended_block_begin_c, &
-      !p_block_params%matrix_ptr)
-
-      !call write_pressure_BC(ndims, p_block_params%extended_block_dims, p_block_params%extended_block_begin_c, &
-      !p_block_params%matrix_ptr)
+      ! call test_pressure_bc(ndims, p_block_params%extended_block_dims, p_block_params%extended_block_begin_c, &
+      !    p_FDstencil, p_block_params%matrix_ptr)
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
@@ -216,7 +217,7 @@ contains
       integer, intent(out) :: converged
       integer, intent(out) :: it
 
-      real, dimension(product(u_block%extended_local_size)) :: u_star, v_star, u_x_v_y
+      real, dimension(product(u_block%extended_local_size)) :: u_x_v_y
       real :: u_error, v_error
       real, dimension(2) :: local_error_array, global_error_array
 
@@ -228,33 +229,34 @@ contains
       num_elements = 1
       norm_array = [1e12,1e18,1e36,1e48]
 
-      u_star = 0
-      v_star = 0
       u_x_v_y = 0
 
       ! Calculate intermediate velocity fields
-      call DOPRI5(u_block, v_block, uv_FDstencil, nu, dt, u_star, v_star, u_error, v_error)
+      call DOPRI5(u_block, v_block, uv_FDstencil, nu, dt, u_block%temp_matrix_ptr, v_block%temp_matrix_ptr, u_error, v_error)
       local_error_array = [u_error, v_error]
 
       ! Do an allreduce to get the maximum error
       call all_reduce_mpi_wrapper(local_error_array, global_error_array, 2, &
          int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), comm%comm)
 
-      call sendrecv_data_neighbors(comm%comm, u_block, u_star)
-      call sendrecv_data_neighbors(comm%comm, v_block, v_star)
-
       ! Write out the boundary conditions on the velocity fields
-      call write_velocity_BC(u_block%ndims, u_block%extended_block_dims, u_block%global_begin_c, u_star, v_star)
+      call write_velocity_BC(u_block%ndims, u_block%extended_block_dims, u_block%global_begin_c, &
+         u_block%temp_matrix_ptr, v_block%temp_matrix_ptr)
+
+      ! Send and receive the between the velocity fields
+      call sendrecv_data_neighbors(comm%comm, u_block, u_block%temp_matrix_ptr)
+      call sendrecv_data_neighbors(comm%comm, v_block, v_block%temp_matrix_ptr)
 
       ! Calculate velocity divergence
-      call calculate_velocity_divergence(u_block, v_block, u_star, v_star, uv_FDstencil, u_x_v_y)
+      call calculate_velocity_divergence(u_block, v_block, uv_FDstencil, u_x_v_y)
 
       ! Calculate pressure correction. We need to have a different stencil dx here because of the ghost points.
       call solve_poisson_problem(u_block, v_block, p_block, p_block%matrix_ptr, p_block%temp_matrix_ptr, u_x_v_y, p_FDstencil, &
          solver_params_in, comm, norm_array, rho, dt, converged, it)
 
       ! Update the velocity fields and correct the pressure
-      call update_velocity_fields(u_block, v_block, p_block, uv_FDstencil, u_star, v_star, rho, dt)
+      call update_velocity_fields(u_block, v_block, p_block, uv_FDstencil, u_block%temp_matrix_ptr, v_block%temp_matrix_ptr,&
+         rho, dt)
 
       ! Write out the boundary conditions on the velocity fields
       call write_velocity_BC(u_block%ndims, u_block%extended_block_dims, u_block%global_begin_c, &
@@ -265,104 +267,6 @@ contains
       call sendrecv_data_neighbors(comm%comm, p_block, p_block%matrix_ptr)
 
    end subroutine NS_2D_one_timestep
-
-   ! Write the lid cavity boundary conditions on the velocity fields.
-   subroutine write_velocity_BC(ndims, dims, begin_indices, u_matrix, v_matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: dims, begin_indices
-      real, dimension(:), intent(inout) :: u_matrix, v_matrix
-
-      integer :: global_index
-      integer, dimension(ndims) :: indices
-
-      !$omp parallel do default(none) &
-      !$omp shared(ndims, dims, begin_indices, u_matrix, v_matrix) &
-      !$omp private(global_index, indices)
-      do global_index = 1, product(dims)
-         call IDX_XD_INV(ndims, dims, global_index, indices)
-         indices = begin_indices + indices
-
-         if(indices(1) == 1 .or. indices(1) == dims(1) .or. indices(2) == 1 .or. indices(2) == dims(2)) then
-            u_matrix(global_index) = 0.0
-            v_matrix(global_index) = 0.0
-         end if
-
-         if(indices(1) == 1) then
-            u_matrix(global_index) = system_u_lid
-         end if
-      end do
-
-      !$omp end parallel do
-
-   end subroutine write_velocity_BC
-
-   ! Write the lid cavity boundary conditions on the pressure field.
-   ! We want u_x = 0 at the left and right wall and u_y = 0 at the bottom wall and top wall. We anchor the pressure at the bottom corner.
-   ! Not sure about the corners, perhaps u_x + u_y = 0.
-   subroutine write_pressure_BC(ndims, dims, begin_indices, p_matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: dims, begin_indices
-      real, dimension(:), intent(inout) :: p_matrix
-
-      integer :: global_index, boundary_index, ghost_index, interior_index
-      integer, dimension(ndims) :: indices
-
-      !$omp parallel do default(none) &
-      !$omp shared(ndims, dims, begin_indices, p_matrix) &
-      !$omp private(global_index, indices, boundary_index, ghost_index, interior_index)
-      do global_index = 1, product(dims)
-         call IDX_XD_INV(ndims, dims, global_index, indices)
-         indices = begin_indices + indices ! Go from the local space to the global space
-
-         ! Top wall: u_y = 0 (Neumann condition)
-         if (indices(1) == 2) then
-            boundary_index = global_index
-            call IDX_XD(ndims, dims, [indices(1)-1, indices(2)], ghost_index)
-            call IDX_XD(ndims, dims, [indices(1)+1, indices(2)], interior_index)
-
-            p_matrix(ghost_index) = p_matrix(interior_index)
-            p_matrix(boundary_index) = p_matrix(interior_index)
-         end if
-
-         ! Bottom wall: u_y = 0 (Neumann condition)
-         if(indices(1) == dims(1)-1) then
-            boundary_index = global_index
-            call IDX_XD(ndims, dims, [indices(1)+1, indices(2)], ghost_index)
-            call IDX_XD(ndims, dims, [indices(1)-1, indices(2)], interior_index)
-
-            p_matrix(ghost_index) = p_matrix(interior_index)
-            p_matrix(boundary_index) = p_matrix(interior_index)
-         end if
-
-         ! Left wall: u_x = 0 (Neumann condition)
-         if (indices(2) == 2) then
-            boundary_index = global_index
-            call IDX_XD(ndims, dims, [indices(1), indices(2)-1], ghost_index)
-            call IDX_XD(ndims, dims, [indices(1), indices(2)+1], interior_index)
-
-            p_matrix(ghost_index) = p_matrix(interior_index)
-            p_matrix(boundary_index) = p_matrix(interior_index)
-         end if
-
-         ! Right wall: u_x = 0 (Neumann condition)
-         if(indices(2) == dims(2)-1) then
-            boundary_index = global_index
-            call IDX_XD(ndims, dims, [indices(1), indices(2)+1], ghost_index)
-            call IDX_XD(ndims, dims, [indices(1), indices(2)-1], interior_index)
-
-            p_matrix(ghost_index) = p_matrix(interior_index)
-            p_matrix(boundary_index) = p_matrix(interior_index)
-         end if
-
-         ! Bottom corner of the true domain. Not at the corner ghost point. Unsure about this: p = 0 (Dirichlet condition)
-         if (indices(1) == dims(1)-1 .and. indices(2) == dims(2)-1) then
-            p_matrix(global_index) = 0.0
-         end if
-      end do
-
-      !$omp end parallel do
-
-   end subroutine write_pressure_BC
 
    !> Subroutine to implement the DOPRI5 method for the Navier-Stokes equation
    subroutine DOPRI5(u_block, v_block, FDstencil, nu, dt, u_star, v_star, u_error, v_error)
@@ -451,8 +355,8 @@ contains
       !$omp shared(u_block, v_block, u_matrix, v_matrix, FDstencil, nu, u_rhs, v_rhs) &
       !$omp private(ii, jj, indices, global_index, alphas, coefficients, dfx, dfy, dfxx, dfyy, combined_stencils, &
       !$omp u, v, f_u, f_v)
-      do ii = u_block%block_begin_c(1)+2, u_block%block_end_c(1)-1
-         do jj = u_block%block_begin_c(2)+2, u_block%block_end_c(2)-1
+      do ii = u_block%block_begin_c(1)+1, u_block%block_end_c(1)
+         do jj = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
             indices = [ii,jj]
             call IDX_XD(u_block%ndims, u_block%extended_block_dims, indices, global_index)
 
@@ -489,36 +393,35 @@ contains
    end subroutine compute_rhs
 
    ! Calculate velocity divergence
-   subroutine calculate_velocity_divergence(u_block, v_block, u_matrix, v_matrix, FDstencil, u_x_v_y)
-      type(block_type), intent(in) :: u_block, v_block
-      real, dimension(:), intent(in) :: u_matrix, v_matrix
+   subroutine calculate_velocity_divergence(u_block, v_block, FDstencil, u_x_v_y)
+      type(block_type), intent(inout) :: u_block, v_block
       type(FDstencil_type), target, intent(inout) :: FDstencil
       real, dimension(:), intent(inout) :: u_x_v_y
 
       integer :: ii, jj, global_index
-      integer, dimension(u_block%ndims) :: indices, alphas
+      integer, dimension(u_block%ndims) :: local_indices, alphas
       real, dimension(:), pointer :: coefficients, dfx, dfy
       real :: u_x, v_y
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(u_block, v_block, u_matrix, v_matrix, FDstencil, u_x_v_y) &
-      !$omp private(ii, jj, indices, global_index, alphas, coefficients, dfx, dfy, u_x, v_y)
-      do ii = u_block%extended_block_begin_c(1)+2, u_block%extended_block_end_c(1)-1
-         do jj = u_block%extended_block_begin_c(2)+2, u_block%extended_block_end_c(2)-1
-            indices = [ii,jj]
-            call IDX_XD(u_block%ndims, u_block%extended_block_dims, indices, global_index)
+      !$omp shared(u_block, v_block, FDstencil, u_x_v_y) &
+      !$omp private(ii, jj, local_indices, global_index, alphas, coefficients, dfx, dfy, u_x, v_y)
+      do ii = u_block%extended_block_begin_c(1)+1, u_block%extended_block_end_c(1)
+         do jj = u_block%extended_block_begin_c(2)+1, u_block%extended_block_end_c(2)
+            local_indices = [ii,jj]
+            call IDX_XD(u_block%ndims, u_block%extended_block_dims, local_indices, global_index)
 
             call get_FD_coefficients_from_index(u_block%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-               u_block%extended_block_begin_c+1, u_block%extended_block_dims, indices, &
+               u_block%extended_block_begin_c+1, u_block%extended_block_dims, local_indices, &
                FDstencil%scaled_stencil_coefficients, alphas, coefficients)
 
             dfx => coefficients(1:FDstencil%num_stencil_elements)
             dfy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
 
             call apply_FDstencil(u_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, dfx, u_block%extended_block_dims, &
-               indices, u_matrix, u_x)
+               local_indices, u_block%temp_matrix_ptr, u_x)
             call apply_FDstencil(u_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, dfy, u_block%extended_block_dims, &
-               indices, v_matrix, v_y)
+               local_indices, v_block%temp_matrix_ptr, v_y)
 
             u_x_v_y(global_index) = u_x + v_y
 
@@ -575,8 +478,9 @@ contains
                dfxx => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
                dfyy => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-               f_val = (rho/dt) * u_x_v_y(uv_global_index)
                combined_stencils = dfxx + dfyy
+
+               f_val = (rho/dt) * u_x_v_y(uv_global_index)
 
                call update_value_from_stencil(p_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, combined_stencils, &
                   p_block%extended_block_begin_c+1, p_block%extended_block_dims, p_matrix_ptr, f_val, new_val)
@@ -592,20 +496,19 @@ contains
 
          norm_array(1) = local_norm
 
-         call write_pressure_BC(p_block%ndims, p_block%extended_block_dims, p_block%global_begin_c, p_temp_matrix_ptr)
+         call swap_pointers(p_matrix_ptr, p_temp_matrix_ptr)
+
+         call write_pressure_BC(p_block%ndims, p_block%extended_block_dims, p_block%global_begin_c, FDstencil, p_matrix_ptr)
+
+         call sendrecv_data_neighbors(comm%comm, p_block, p_matrix_ptr)
 
          call check_convergence(comm%comm, solver_params%tol, solver_params%divergence_tol, &
-            1.0/product(p_block%total_grid_size), norm_array, converged)
+            1.0/product(p_block%extended_grid_size), norm_array, converged)
          if(converged == -1) then
             !exit
          end if
 
-         call swap_pointers(p_matrix_ptr, p_temp_matrix_ptr)
-
-         call sendrecv_data_neighbors(comm%comm, p_block, p_matrix_ptr)
-
          it = it + 1
-         converged = 0
 
       end do
 
@@ -621,19 +524,17 @@ contains
       integer :: ii, jj, p_global_index, uv_global_index
       integer, dimension(p_block%ndims) :: p_indices, uv_indices, alphas
       real, dimension(:), pointer :: coefficients, dfx, dfy
-      real, dimension(product(FDstencil%stencil_sizes)) :: combined_stencils
       real :: p_x, p_y
 
       !$omp parallel do collapse(2) default(none) &
       !$omp shared(u_block, v_block, p_block, FDstencil, u_star, v_star, rho, dt) &
-      !$omp private(ii, jj, p_indices, uv_indices, p_global_index, uv_global_index, alphas, coefficients, dfx, dfy, &
-      !$omp combined_stencils, p_x, p_y)
-      do ii = p_block%block_begin_c(1)+1, p_block%block_end_c(1)
-         do jj = p_block%block_begin_c(2)+1, p_block%block_end_c(2)
+      !$omp private(ii, jj, p_indices, uv_indices, p_global_index, uv_global_index, alphas, coefficients, dfx, dfy, p_x, p_y)
+      do ii = p_block%block_begin_c(1) - p_block%begin_ghost_offset(1) + 1, p_block%block_end_c(1) + p_block%end_ghost_offset(1)
+         do jj = p_block%block_begin_c(2) - p_block%begin_ghost_offset(2) + 1, p_block%block_end_c(2) + p_block%end_ghost_offset(2)
             p_indices = [ii,jj]
-            uv_indices = p_indices - p_block%ghost_begin
-            call IDX_XD(p_block%ndims, p_block%extended_global_dims, p_indices, p_global_index)
-            call IDX_XD(u_block%ndims, u_block%extended_global_dims, uv_indices, uv_global_index)
+            uv_indices = p_indices
+            call IDX_XD(p_block%ndims, p_block%extended_block_dims, p_indices, p_global_index)
+            call IDX_XD(u_block%ndims, u_block%extended_block_dims, uv_indices, uv_global_index)
 
             call get_FD_coefficients_from_index(p_block%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
                p_block%extended_block_begin_c+1, p_block%extended_block_dims, p_indices, &
@@ -642,15 +543,11 @@ contains
             dfx => coefficients(1:FDstencil%num_stencil_elements)
             dfy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
 
-            combined_stencils = dfx
-            call apply_FDstencil(p_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, combined_stencils, &
+            call apply_FDstencil(p_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, dfx, &
                p_block%extended_local_size, p_indices, p_block%matrix_ptr, p_x)
 
-            combined_stencils = dfy
-            call apply_FDstencil(p_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, combined_stencils, &
+            call apply_FDstencil(p_block%ndims, 1, 0, FDstencil%stencil_sizes, alphas, dfy, &
                p_block%extended_local_size, p_indices, p_block%matrix_ptr, p_y)
-
-            !write(*,*) p_indices, "P_x: ", p_x, " P_y: ", p_y
 
             u_block%matrix_ptr(uv_global_index) = u_star(uv_global_index) - (dt/rho) * p_x
             v_block%matrix_ptr(uv_global_index) = v_star(uv_global_index) - (dt/rho) * p_y
@@ -662,9 +559,100 @@ contains
 
    end subroutine update_velocity_fields
 
-   subroutine test_pressure_bc(ndims, dims, begin_indices, p_matrix)
+   ! Write the lid cavity boundary conditions on the velocity fields.
+   subroutine write_velocity_BC(ndims, dims, begin_indices, u_matrix, v_matrix)
       integer, intent(in) :: ndims
       integer, dimension(:), intent(in) :: dims, begin_indices
+      real, dimension(:), intent(inout) :: u_matrix, v_matrix
+
+      integer :: global_index
+      integer, dimension(ndims) :: local_indices, global_indices
+
+      !$omp parallel do default(none) &
+      !$omp shared(ndims, dims, begin_indices, u_matrix, v_matrix) &
+      !$omp private(global_index, local_indices, global_indices)
+      do global_index = 1, product(dims)
+         call IDX_XD_INV(ndims, dims, global_index, local_indices)
+         global_indices = begin_indices + local_indices
+
+         if(global_indices(1) == 1 .or. global_indices(1) == dims(1) .or. &
+            global_indices(2) == 1 .or. global_indices(2) == dims(2)) then
+            u_matrix(global_index) = 0.0
+            v_matrix(global_index) = 0.0
+         end if
+
+         if(global_indices(1) == 1) then
+            u_matrix(global_index) = system_u_lid
+         end if
+      end do
+
+      !$omp end parallel do
+
+   end subroutine write_velocity_BC
+
+   ! Write the lid cavity boundary conditions on the pressure field.
+   ! We want u_x = 0 at the left and right wall and u_y = 0 at the bottom wall and top wall. We anchor the pressure at the bottom corner.
+   ! Not sure about the corners, perhaps u_x + u_y = 0.
+   subroutine write_pressure_BC(ndims, dims, begin_indices, FDstencil, p_matrix)
+      integer, intent(in) :: ndims
+      integer, dimension(:), intent(in) :: dims, begin_indices
+      type(FDstencil_type), target, intent(inout) :: FDstencil
+      real, dimension(:), intent(inout) :: p_matrix
+
+      real :: rhs, new_val
+      integer :: global_index
+      integer, dimension(ndims) ::local_indices, global_indices, alpha
+      real, dimension(:), pointer :: coefficients, dfx, dfy
+
+      !$omp parallel do default(none) &
+      !$omp shared(ndims, dims, begin_indices, FDstencil, p_matrix) &
+      !$omp private(global_index, local_indices, global_indices, alpha, coefficients, dfx, dfy, rhs, new_val)
+      do global_index = 1, product(dims)
+         call IDX_XD_INV(ndims, dims, global_index, local_indices)
+         global_indices = begin_indices + local_indices ! Go from the local space to the global space
+
+         call get_FD_coefficients_from_index(ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
+            [1,1], dims, local_indices, &
+            FDstencil%scaled_stencil_coefficients, alpha, coefficients)
+
+         dfx => coefficients(1:FDstencil%num_stencil_elements)
+         dfy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
+
+         rhs = 0.0
+
+         ! ! Left and right wall: u_x = 0 (Neumann condition)
+         ! if (global_indices(2) == 1 .or. global_indices(2) == dims(2)) then
+         !    call update_value_from_stencil(ndims, 1,0, FDstencil%stencil_sizes, alpha, dfx, dims, local_indices, &
+         !       p_matrix, rhs, new_val)
+
+         !    p_matrix(global_index) = new_val
+         ! end if
+
+         ! ! Top and bottom walls: u_y = 0 (Neumann condition)
+         ! if (global_indices(1) == 1 .or. global_indices(1) == dims(1)) then
+         !    call update_value_from_stencil(ndims, 1,0, FDstencil%stencil_sizes, alpha, dfy, dims, local_indices, &
+         !       p_matrix, rhs, new_val)
+
+         !    p_matrix(global_index) = new_val
+         ! end if
+
+         if(global_indices(1) == 1) then
+            p_matrix(global_index) = 0.0
+         end if
+
+         ! Bottom corner of the true domain. Not at the corner ghost point. Unsure about this: p = 0 (Dirichlet condition)
+         ! if (global_indices(1) == dims(1) .and. global_indices(2) == dims(2)) then
+         !    p_matrix(global_index) = 0.0
+         ! end if
+      end do
+
+      !$omp end parallel do
+
+   end subroutine write_pressure_BC
+   subroutine test_pressure_bc(ndims, dims, begin_indices, FDstencil, p_matrix)
+      integer, intent(in) :: ndims
+      integer, dimension(:), intent(in) :: dims, begin_indices
+      type(FDstencil_type), target, intent(inout) :: FDstencil
       real, dimension(:), intent(inout) :: p_matrix
 
       integer :: global_index
@@ -679,6 +667,8 @@ contains
       end do
 
       !$omp end parallel do
+
+      call write_pressure_BC(ndims, dims, begin_indices, FDstencil, p_matrix)
 
    end subroutine test_pressure_bc
 

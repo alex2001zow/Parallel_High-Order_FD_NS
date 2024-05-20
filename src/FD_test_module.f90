@@ -103,13 +103,13 @@ contains
          grid_size * 0, grid_size * 0, grid_size * 0, grid_size * 0, stencil_sizes/2, stencil_sizes/2, test_block_params)
 
       call write_function_to_block(test_block_params%ndims, 1, test_block_params%domain_begin, test_block_params%domain_end, &
-         test_block_params%total_grid_size, test_block_params%global_begin_c+1, test_block_params%global_dims, &
-         test_block_params%matrix, test_block_params%dx, u_test_2D_func)
+         test_block_params%extended_grid_size, test_block_params%global_begin_c+1, test_block_params%global_dims, &
+         test_block_params%matrix, test_block_params%extended_grid_dx, u_test_2D_func)
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
       !! Scale the coefficients by dx
-      call calculate_scaled_coefficients(ndims, test_block_params%dx, FDstencil_params)
+      call calculate_scaled_coefficients(ndims, test_block_params%extended_grid_dx, FDstencil_params)
 
       call test_fd_method(test_block_params, FDstencil_params)
 
@@ -166,7 +166,7 @@ contains
       global_domain_size = test_block%extended_local_size
       global_begin_indices = 1
 
-      dx = test_block%dx
+      dx = test_block%extended_grid_dx
 
       num_elements = 1
 

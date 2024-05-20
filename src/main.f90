@@ -13,7 +13,8 @@ subroutine run_simulation()
    use block_test_module, only: block_test_main
    use poisson_module, only: Poisson_main
    use nonlinear_test_module, only: nonlinear_1D_test_main
-   use Navier_Stokes_2D_module, only: Navier_Stokes_2D_main
+   !use Navier_Stokes_2D_module, only: Navier_Stokes_2D_main
+   use Navier_Stokes_2D_module_old, only: Navier_Stokes_2D_main
    implicit none
 
    integer :: num_physical_cores, rank, world_size

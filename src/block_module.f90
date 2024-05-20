@@ -12,8 +12,8 @@ module block_module
    type block_type
       integer :: ndims, elements_per_index, used_elements_per_index
       integer :: num_elements, extended_num_elements
-      real, dimension(:), allocatable :: domain_begin, domain_end, dx
-      integer, dimension(:), allocatable :: grid_size, total_grid_size
+      real, dimension(:), allocatable :: domain_begin, domain_end, grid_dx, extended_grid_dx
+      integer, dimension(:), allocatable :: grid_size, extended_grid_size
       integer, dimension(:), allocatable :: bc_begin, bc_end
       integer, dimension(:), allocatable :: ghost_begin, ghost_end
       integer, dimension(:), allocatable :: stencil_begin, stencil_end
@@ -63,9 +63,13 @@ contains
       block_output%ghost_end = ghost_end
       block_output%stencil_begin = stencil_begin
       block_output%stencil_end = stencil_end
-      block_output%total_grid_size = grid_size + (ghost_begin + ghost_end) + (stencil_begin + stencil_end)
+      block_output%extended_grid_size = grid_size + (ghost_begin + ghost_end)
 
-      call calculate_dx(block_output%domain_begin, block_output%domain_end, block_output%total_grid_size, block_output%dx)
+      call calculate_dx(block_output%domain_begin, block_output%domain_end, block_output%grid_size, &
+         block_output%grid_dx)
+
+      call calculate_dx(block_output%domain_begin, block_output%domain_end, block_output%extended_grid_size, &
+         block_output%extended_grid_dx)
 
       call setup_block_data_layout_type(ndims, elements_per_index, grid_size, comm%processor_dim, &
          bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, &
@@ -246,9 +250,10 @@ contains
 
       allocate(block_input%domain_begin(block_input%ndims))
       allocate(block_input%domain_end(block_input%ndims))
-      allocate(block_input%dx(block_input%ndims))
+      allocate(block_input%grid_dx(block_input%ndims))
+      allocate(block_input%extended_grid_dx(block_input%ndims))
       allocate(block_input%grid_size(block_input%ndims))
-      allocate(block_input%total_grid_size(block_input%ndims))
+      allocate(block_input%extended_grid_size(block_input%ndims))
       allocate(block_input%bc_begin(block_input%ndims))
       allocate(block_input%bc_end(block_input%ndims))
       allocate(block_input%ghost_begin(block_input%ndims))
@@ -288,9 +293,10 @@ contains
 
       if(allocated(block_input%domain_begin)) deallocate(block_input%domain_begin)
       if(allocated(block_input%domain_end)) deallocate(block_input%domain_end)
-      if(allocated(block_input%dx)) deallocate(block_input%dx)
+      if(allocated(block_input%grid_dx)) deallocate(block_input%grid_dx)
+      if(allocated(block_input%extended_grid_dx)) deallocate(block_input%extended_grid_dx)
       if(allocated(block_input%grid_size)) deallocate(block_input%grid_size)
-      if(allocated(block_input%total_grid_size)) deallocate(block_input%total_grid_size)
+      if(allocated(block_input%extended_grid_size)) deallocate(block_input%extended_grid_size)
       if(allocated(block_input%bc_begin)) deallocate(block_input%bc_begin)
       if(allocated(block_input%bc_end)) deallocate(block_input%bc_end)
       if(allocated(block_input%ghost_begin)) deallocate(block_input%ghost_begin)
@@ -352,9 +358,10 @@ contains
 
       write(iounit, *) "domain_begin: ", block_input%domain_begin
       write(iounit, *) "domain_end: ", block_input%domain_end
-      write(iounit, *) "dx: ", block_input%dx
+      write(iounit, *) "grid_dx: ", block_input%grid_dx
+      write(iounit, *) "extended_grid_dx: ", block_input%extended_grid_dx
       write(iounit, *) "grid_size: ", block_input%grid_size
-      write(iounit, *) "total_grid_size: ", block_input%total_grid_size
+      write(iounit, *) "extended_grid_size: ", block_input%extended_grid_size
       write(iounit, *) "bc_begin: ", block_input%bc_begin
       write(iounit, *) "bc_end: ", block_input%bc_end
       write(iounit, *) "ghost_begin: ", block_input%ghost_begin
@@ -402,9 +409,11 @@ contains
 
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "extended_num_elements: ", block_input%extended_num_elements
-      !write(iounit, *) "matrix: ", block_input%matrix
-      call print_real_array(ndims, block_input%extended_local_size, block_input%matrix, &
+      call print_real_array(ndims, block_input%extended_local_size, block_input%matrix_ptr, &
          1, "Matrix", iounit)
+
+      ! call print_real_array(ndims, block_input%extended_local_size, block_input%temp_matrix_ptr, &
+      !    1, "Temp matrix", iounit)
 
    end subroutine print_block_type
 

@@ -105,24 +105,21 @@ contains
    end subroutine print_resultType
 
    subroutine choose_iterative_solver(comm_in, block_in, FDstencil_in, &
-      functions_in, SystemSolver_in, SolverParams_in, &
-      begin, end, Result_out)
+      functions_in, SystemSolver_in, SolverParams_in, Result_out)
       type(comm_type), target, intent(inout) :: comm_in
       type(block_type), target, intent(inout) :: block_in
       type(FDstencil_type), target, intent(inout) :: FDstencil_in
       type(FunctionPair), target, intent(in) :: functions_in
       type(SolverPtrType), target, intent(in) :: SystemSolver_in
       type(SolverParamsType), intent(in) :: SolverParams_in
-      integer, dimension(block_in%ndims), intent(in) :: begin, end
 
       type(ResultType), intent(inout) :: Result_out
 
-      call calculate_scaled_coefficients(comm_in%ndims, block_in%dx, FDstencil_in)
+      call calculate_scaled_coefficients(comm_in%ndims, block_in%extended_grid_dx, FDstencil_in)
 
       select case (SolverParams_in%solver_type)
        case(GSSolver)
-         call run_GSS_solver(comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, SolverParams_in, &
-            begin, end, Result_out)
+         call run_GSS_solver(comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, SolverParams_in, Result_out)
        case(JSolver)
          print *, "Jacobi solver not implemented!"
          stop
@@ -136,15 +133,13 @@ contains
    end subroutine choose_iterative_solver
 
    !> Run the Gauss-Seidel solver.
-   subroutine run_GSS_solver(comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, SolverParams_in, &
-      begin, end, Result_out)
+   subroutine run_GSS_solver(comm_in, block_in, FDstencil_in, functions_in, SystemSolver_in, SolverParams_in, Result_out)
       type(comm_type), target, intent(inout) :: comm_in
       type(block_type), target, intent(inout) :: block_in
       type(FDstencil_type), target, intent(inout) :: FDstencil_in
       type(FunctionPair), target, intent(in) :: functions_in
       type(SolverPtrType), target, intent(in) :: SystemSolver_in
       type(SolverParamsType), intent(in) :: SolverParams_in
-      integer, dimension(block_in%ndims), intent(in) :: begin, end
 
       type(ResultType), intent(inout) :: Result_out
 
@@ -153,7 +148,7 @@ contains
       real, dimension(4) :: norm_array
 
       ! Scale depending on the number of grid points
-      norm_scaling = 1.0/product(block_in%total_grid_size)
+      norm_scaling = 1.0/product(block_in%extended_grid_size)
 
       ! local_norm, global_norm, previous_norm, relative_norm
       norm_array = [1e3, 1e6, 1e9, 1e18]
@@ -164,8 +159,9 @@ contains
 
          call GS_iteration(block_in%ndims, block_in%num_elements, &
             FDstencil_in, block_in%extended_block_begin_c+1, block_in%extended_block_dims, &
-            block_in%global_begin_c+1, block_in%matrix, functions_in, block_in%dx, SystemSolver_in, &
-            block_in%domain_begin, block_in%domain_end, block_in%total_grid_size, begin, end, norm_array(1))
+            block_in%global_begin_c+1, block_in%matrix, functions_in, block_in%extended_grid_dx, SystemSolver_in, &
+            block_in%domain_begin, block_in%domain_end, block_in%extended_grid_size, &
+            block_in%block_begin_c+1, block_in%block_end_c, norm_array(1))
 
          call check_convergence(comm_in%comm, SolverParams_in%tol, SolverParams_in%divergence_tol, norm_scaling, &
             norm_array, converged)
@@ -183,7 +179,7 @@ contains
    end subroutine run_GSS_solver
 
    !> Gauss Seidel iteration with 2-norm
-   pure subroutine GS_iteration(ndims, num_elements, FDstencil, &
+   subroutine GS_iteration(ndims, num_elements, FDstencil, &
       start_dims, dims, global_begin, matrix, functions, dx, SystemSolver, &
       global_domain_begin, global_domain_end, global_domain_size, begin, end, norm)
       integer, intent(in) :: ndims, num_elements

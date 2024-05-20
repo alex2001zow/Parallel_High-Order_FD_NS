@@ -40,7 +40,7 @@ contains
       allocate(stencil_sizes(ndims))
 
       grid_size = 8
-      processor_dims = 2
+      processor_dims = 1
       domain_begin = 0
       domain_end = 1
       stencil_sizes = 3
@@ -95,10 +95,10 @@ contains
 
       num_data_elements = 1
 
-      bc_begin = 1
-      bc_end = 1
-      ghost_begin = stencil_sizes/2
-      ghost_end = stencil_sizes/2
+      bc_begin = 0
+      bc_end = 0
+      ghost_begin = 1*(stencil_sizes/2)
+      ghost_end = 1*(stencil_sizes/2)
       stencil_begin = stencil_sizes/2
       stencil_end = stencil_sizes/2
 

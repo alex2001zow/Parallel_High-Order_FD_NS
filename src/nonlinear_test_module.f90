@@ -126,27 +126,21 @@ contains
       ! Initialize the block
       call write_initial_condition_and_boundary(ndims, num_data_elements(1), domain_begin, domain_end, &
          grid_size, block_params%global_begin_c+1, block_params%local_size, block_params%matrix, &
-         block_params%dx, funcs_params)
-
-      ! Set the begin and end for the solver
-      begin = 2
-      end = block_params%local_size - 1
+         block_params%extended_grid_dx, funcs_params)
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
 
       ! Run the solver
       call choose_iterative_solver(comm_params, block_params, FDstencil_params, &
-         funcs_params, SystemSolver, solver_params, &
-         begin, end, result)
+         funcs_params, SystemSolver, solver_params, result)
 
       if(rank == MASTER_RANK) then
          call print_resultType(result)
       end if
 
       call choose_iterative_solver(comm_params, block_params, FDstencil_params2, &
-         funcs_params, SystemSolver, solver_params, &
-         begin, end, result)
+         funcs_params, SystemSolver, solver_params, result)
 
       result_array_with_timings(2) = MPI_WTIME()
 
