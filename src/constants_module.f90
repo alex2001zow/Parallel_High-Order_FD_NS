@@ -1,5 +1,4 @@
 module constants_module
-   use mpi
    implicit none
 
    private

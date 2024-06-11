@@ -4,7 +4,7 @@ module nonlinear_test_module
    use mpi_wrapper_module, only: all_reduce_mpi_wrapper, write_block_data_to_file
 
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
-      print_cart_comm_type, print_cartesian_grid
+      print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, apply_FDstencil
    use block_module, only: block_type, create_block_type, deallocate_block_type, print_block_type
@@ -98,10 +98,12 @@ contains
       type(SolverPtrType) :: SystemSolver
       type(ResultType) :: result
 
+      logical, dimension(ndims) :: periods
+
+      periods = .false.
+
       num_data_elements = 1
 
-      bc_begin = 0
-      bc_end = 0
       ghost_begin = stencil_sizes/2
       ghost_end = stencil_sizes/2
       stencil_begin = stencil_sizes/2
@@ -112,12 +114,12 @@ contains
       call set_function_pointers(num_data_elements, initial_nonlinear_test, boundary_nonlinear_test, &
          f_nonlinear_test, f_nonlinear_test, u_nonlinear_test, funcs_params)
 
-      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
+      call create_cart_comm_type(ndims, processor_dims, periods, .true., rank, world_size, comm_params)
 
       !call sleeper_function(1)
 
       call create_block_type(ndims, num_data_elements(1), num_data_elements(1), domain_begin, domain_end, grid_size, comm_params, &
-         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
+         ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
       call create_finite_difference_stencils(block_params%ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
@@ -153,9 +155,6 @@ contains
       if(rank == MASTER_RANK) then
          call print_resultType(result)
          write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
-
-         ! Write out the cartesian grid from the master rank
-         call print_cartesian_grid(ndims, comm_params%comm, world_size, processor_dims, "output/output_from_")
       end if
 
       ! Write out our setup to a file. Just for debugging purposes

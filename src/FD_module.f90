@@ -1,5 +1,6 @@
 module FD_module
-   use utility_functions_module, only : IDX_XD, IDX_XD_INV, print_real_array, sleeper_function
+   use utility_functions_module, only : reshape_real_1D_to_4D, reshape_real_1D_to_5D, &
+      IDX_XD, IDX_XD_INV, print_real_array, sleeper_function
    use block_module, only : block_type
    implicit none
 
@@ -9,11 +10,16 @@ module FD_module
       integer :: num_derivatives, num_stencil_elements, combination_of_stencil_sizes, stencil_coefficients_size
       integer, dimension(:), allocatable :: derivatives, stencil_sizes
       real, dimension(:), allocatable :: stencil_coefficients, scaled_stencil_coefficients
+
+      ! Pointers for different dimensions. It should be in this order x, y, z, derivative, beta, alpha
+      real, contiguous, dimension(:,:,:,:), pointer ::coefficients_ptr
+      real, contiguous, dimension(:,:,:,:,:), pointer :: coefficients_ptr_2D
+      real, contiguous, dimension(:,:,:,:,:,:), pointer :: coefficients_ptr_3D
    end type FDstencil_type
 
    public :: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil
-   public :: apply_FDstencil, update_value_from_stencil
+   public :: apply_FDstencil, apply_stencil_2D, update_value_from_stencil, update_value_from_stencil_2D
    public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index
    public :: calculate_scaled_coefficients
 
@@ -52,6 +58,8 @@ contains
          call create_finite_difference_stencil_from_alpha_and_beta(ndims, num_derivatives, derivatives, alphas, betas, &
             FDstencil_type_output%stencil_coefficients(start_index:end_index))
       end do
+
+      FDstencil_type_output%scaled_stencil_coefficients = FDstencil_type_output%stencil_coefficients
 
    end subroutine create_finite_difference_stencils
 
@@ -138,9 +146,9 @@ contains
 
             write(iounit, *) "Derivative: ", FDstencil_type_input%derivatives(&
                (derivative_global_index-1)*ndims+1:derivative_global_index*ndims)
-            call print_real_array(ndims, FDstencil_type_input%stencil_sizes, &
-               FDstencil_type_input%stencil_coefficients(&
-               (alpha_beta_start_index+derivative_start_index):(alpha_beta_start_index+derivative_end_index)), 1, "", iounit)
+            !call print_real_array(ndims, FDstencil_type_input%stencil_sizes, &
+            !   FDstencil_type_input%stencil_coefficients(&
+            !   (alpha_beta_start_index+derivative_start_index):(alpha_beta_start_index+derivative_end_index)), 1, "", iounit)
          end do
       end do
 
@@ -257,6 +265,17 @@ contains
 
    end subroutine apply_FDstencil
 
+   !> Apply the finite difference stencil to a 2D-matrix
+   pure subroutine apply_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, result)
+      real, dimension(:,:), intent(in) :: stencil_2D, matrix_2D
+      integer, dimension(:), intent(in) :: indices, alpha, beta
+      real, intent(out) :: result
+
+      result = sum(stencil_2D * matrix_2D(indices(1)-alpha(1):indices(1)+beta(1), indices(2)-alpha(2):indices(2)+beta(2)))
+
+   end subroutine apply_stencil_2D
+
+   !> Update the value from a stencil
    pure subroutine update_value_from_stencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, &
       coefficients, dims, index, matrix, f_val, val)
       integer, intent(in) :: ndims, num_elements, element_in_block
@@ -281,13 +300,31 @@ contains
 
    end subroutine update_value_from_stencil
 
+   !> Update the value from a stencil for a 2D-matrix
+   pure subroutine update_value_from_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, f_val, val)
+      real, dimension(:,:), intent(in) :: stencil_2D, matrix_2D
+      integer, dimension(:), intent(in) :: indices, alpha, beta
+      real, intent(in) :: f_val
+      real, intent(out) :: val
+
+      real :: center_coefficient_value
+
+      call apply_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, val)
+
+      center_coefficient_value = stencil_2D(alpha(2)+1,alpha(1)+1) ! The order of alpha is reversed due to the stencil being in row-major order...
+
+      val = val - center_coefficient_value * matrix_2D(indices(1), indices(2))
+      val = (f_val - val) / (center_coefficient_value+1e-6)
+
+   end subroutine update_value_from_stencil_2D
+
    !> Determine alpha and beta from a matrix index.
-   pure subroutine determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index, alpha)
+   pure subroutine determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index, alpha, beta)
       integer, intent(in) :: ndims
       integer, dimension(:), intent(in) :: stencil_sizes, matrix_begin, matrix_end, matrix_index
-      integer, dimension(:), intent(out) :: alpha
+      integer, dimension(:), intent(out) :: alpha, beta
 
-      integer, dimension(ndims) :: elements_to_begin, elements_to_end, beta
+      integer, dimension(ndims) :: elements_to_begin, elements_to_end
 
       elements_to_begin = matrix_index - matrix_begin
       elements_to_end = matrix_end - matrix_index
@@ -297,7 +334,7 @@ contains
 
       beta = (stencil_sizes - 1) - alpha
       alpha = alpha + max(beta - elements_to_end, 0)
-      beta = (stencil_sizes - 1) - alpha ! Not needed but this will give the correct beta. We are really only interested in alpha.
+      beta = (stencil_sizes - 1) - alpha
 
    end subroutine determine_alpha
 
@@ -339,17 +376,17 @@ contains
    end subroutine global_2_start_end
 
    pure subroutine get_FD_coefficients_from_index(ndims, num_derivatives, stencil_sizes, start_dims, dims, index, &
-      coefficients, alpha, pointer_to_coefficients)
+      coefficients, alpha, beta, pointer_to_coefficients)
       integer, intent(in) :: ndims, num_derivatives
       integer, dimension(:), intent(in) :: stencil_sizes, start_dims, dims, index
       real, dimension(:), target, intent(inout) :: coefficients
-      integer, dimension(:), intent(out) :: alpha
-      real, dimension(:), pointer, intent(out) :: pointer_to_coefficients
+      integer, dimension(:), intent(out) :: alpha, beta
+      real, contiguous, dimension(:), pointer, intent(out) :: pointer_to_coefficients
 
       integer :: global_index, start_index, end_index
 
       ! Determine the alpha for the current index
-      call determine_alpha(ndims, stencil_sizes, start_dims, dims, index, alpha)
+      call determine_alpha(ndims, stencil_sizes, start_dims, dims, index, alpha, beta)
 
       ! Find the coefficients from alpha.
       call alpha_2_global(ndims, stencil_sizes, alpha, global_index)
@@ -373,7 +410,7 @@ contains
 
       real :: scale
 
-      real, dimension(:), pointer :: ptr_org, ptr_scaled
+      real, contiguous, dimension(:), pointer :: ptr_org, ptr_scaled
 
       ptr_org => FDstencil_type_input%stencil_coefficients
       ptr_scaled => FDstencil_type_input%scaled_stencil_coefficients

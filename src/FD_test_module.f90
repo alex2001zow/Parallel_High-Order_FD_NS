@@ -4,7 +4,7 @@ module FD_test_module
    use mpi_wrapper_module, only: all_reduce_mpi_wrapper, write_block_data_to_file
 
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
-      print_cart_comm_type, print_cartesian_grid
+      print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, &
       apply_FDstencil, update_value_from_stencil, calculate_scaled_coefficients, get_FD_coefficients_from_index
@@ -92,15 +92,19 @@ contains
       type(block_type) :: test_block_params
       type(FunctionPtrType) :: u_test_2D_func
 
+      logical, dimension(ndims) :: periods
+
+      periods = .false.
+
       u_test_2D_func%output_size = 1
       u_test_2D_func%func => u_test_2D
 
-      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
+      call create_cart_comm_type(ndims, processor_dims, periods, .true., rank, world_size, comm_params)
 
       !call sleeper_function(1)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         grid_size * 0, grid_size * 0, grid_size * 0, grid_size * 0, stencil_sizes/2, stencil_sizes/2, test_block_params)
+         grid_size * 0, grid_size * 0, stencil_sizes/2, stencil_sizes/2, test_block_params)
 
       call write_function_to_block(test_block_params%ndims, 1, test_block_params%domain_begin, test_block_params%domain_end, &
          test_block_params%extended_grid_size, test_block_params%global_begin_c+1, test_block_params%global_dims, &
@@ -145,9 +149,9 @@ contains
 
       integer :: ndims, ii, jj, global_index, num_elements
 
-      real, dimension(:), pointer :: coefficients
-      real, dimension(:), pointer :: dfx, dfy, dfxx, dfyy
-      integer, dimension(test_block%ndims) :: stencil_size, alphas, start_dims, index
+      real, contiguous, dimension(:), pointer :: coefficients
+      real, contiguous, dimension(:), pointer :: dfx, dfy, dfxx, dfyy
+      integer, dimension(test_block%ndims) :: stencil_size, alphas, betas, start_dims, index
 
       real :: u_x, u_y, u_xx, u_yy
 
@@ -181,7 +185,8 @@ contains
             call IDX_XD(test_block%ndims, test_block%extended_local_size, index, global_index)
 
             call get_FD_coefficients_from_index(test_block%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-               start_dims, test_block%extended_local_size, index, FDstencil%scaled_stencil_coefficients, alphas, coefficients)
+               start_dims, test_block%extended_local_size, index, FDstencil%scaled_stencil_coefficients, alphas, betas, &
+               coefficients)
 
             dfx => coefficients(1:FDstencil%num_stencil_elements)
             dfy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)

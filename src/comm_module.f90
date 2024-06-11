@@ -17,16 +17,18 @@ module comm_module
       logical, dimension(:), allocatable :: periods
    end type comm_type
 
-   public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, print_cartesian_grid, &
+   public :: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type, &
       get_neighbor_indices
    public :: get_cart_neighbors, begin_end_neighbor_indices
 
 contains
 
    !> Allocate a comm_type object
-   subroutine create_cart_comm_type(ndims, processor_dim, rank, world_size, comm_output)
+   subroutine create_cart_comm_type(ndims, processor_dim, periods, reorder, rank, world_size, comm_output)
       integer, intent(in) :: ndims, rank, world_size
       integer, dimension(:), intent(in) :: processor_dim
+      logical, dimension(:), intent(in) :: periods
+      logical, intent(in) :: reorder
       type(comm_type), intent(out) :: comm_output
 
       comm_output%ndims = ndims
@@ -36,8 +38,8 @@ contains
       call allocate_cart_comm_type(ndims, comm_output)
 
       comm_output%processor_dim = processor_dim
-      comm_output%periods = .false.
-      comm_output%reorder = .true.
+      comm_output%periods = periods
+      comm_output%reorder = reorder
 
       call create_cart_communicator(comm_output%ndims, comm_output%processor_dim, comm_output%periods, &
          comm_output%reorder, comm_output%comm)
@@ -228,6 +230,9 @@ contains
       integer, intent(in) :: iounit
 
       integer, dimension(comm%ndims) :: neighbor_array
+      integer :: current_rank, start_index, end_index
+      integer, dimension(comm%ndims) :: coords
+      integer, dimension(comm%world_size * (comm%ndims+1)) :: rank_and_coords
 
       neighbor_array = 3
 
@@ -240,54 +245,31 @@ contains
       write(iounit, *) "rank: ", comm%rank
       write(iounit, *) "world_size: ", comm%world_size
       write(iounit, *) "comm: ", comm%comm
+      write(iounit, *) "reorder: ", comm%reorder
 
       write(iounit, *) "processor_dim: ", comm%processor_dim
 
       write(iounit, *) "coords: ", comm%coords
+      write(iounit, *) "periods: ", comm%periods
 
-   end subroutine print_cart_comm_type
+      write(iounit, *) "Cartesian grid:"
 
-   !> A routine to print the cartesian grid of the ranks.
-   subroutine print_cartesian_grid(ndims, cart_comm, world_size, processor_dim, filename)
-      integer, intent(in) :: ndims, cart_comm, world_size
-      integer, dimension(:), intent(in) :: processor_dim
-      character(len=*), intent(in) :: filename
-
-      integer :: current_rank, start_index, end_index, iounit, ios
-      integer, dimension(ndims) :: coords
-      integer, dimension(world_size * (ndims+1)) :: rank_and_coords
-      character(255) :: file_with_grid
-
-      ! Construct the filename by appending "_cart_grid" to the original filename
-      write(file_with_grid, '(A, "cart_grid.txt")') trim(filename)
-
-      ! Open the file for writing, replacing it if it already exists
-      open(newunit=iounit, file=trim(file_with_grid), status='replace', action='write', iostat=ios)
-
-      ! Check for errors in opening the file
-      if (ios /= 0) then
-         print *, "Error opening file: ", trim(file_with_grid)
-         return
-      endif
-
-      ! Write the header to the file
-      write(iounit, *) "Rank cartesian processor grid with dimension:", processor_dim
+      !!!! Print the cartesian grid of the ranks.
 
       ! Iterate over all ranks in the cartesian communicator
-      do current_rank = 1, world_size
+      do current_rank = 1, comm%world_size
          ! Get the coordinates for the current rank
-         call get_cart_coords_mpi_wrapper(cart_comm, current_rank-1, ndims, coords)
+         call get_cart_coords_mpi_wrapper(comm%comm, current_rank-1, comm%ndims, coords)
 
-         start_index = (current_rank-1) * (ndims+1) + 1
-         end_index = current_rank * (ndims+1)
+         start_index = (current_rank-1) * (comm%ndims+1) + 1
+         end_index = current_rank * (comm%ndims+1)
          rank_and_coords(start_index:end_index) = [current_rank-1, coords]
 
       end do
 
-      call print_integer_array(ndims, processor_dim, rank_and_coords, ndims+1, "Rank and coords: ", iounit)
+      call print_integer_array(comm%ndims, comm%processor_dim, comm%processor_dim*0, comm%processor_dim, &
+         rank_and_coords, comm%ndims+1, "Rank and coords: ", iounit)
 
-      ! Close the file
-      close(iounit)
-   end subroutine print_cartesian_grid
+   end subroutine print_cart_comm_type
 
 end module comm_module

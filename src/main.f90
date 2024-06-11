@@ -13,13 +13,14 @@ subroutine run_simulation()
    use block_test_module, only: block_test_main
    use poisson_module, only: Poisson_main
    use nonlinear_test_module, only: nonlinear_1D_test_main
-   !use Navier_Stokes_2D_module, only: Navier_Stokes_2D_main
    use Navier_Stokes_2D_module_old, only: Navier_Stokes_2D_main
+   use TravelingWave_Poisson_2D_module, only: TravelingWave_Poisson_2D_main
+   !use LinearStandingWave_3D_module, only: LinearStandingWave_3D_main
    implicit none
 
    integer :: num_physical_cores, rank, world_size
 
-   ! Set the number of threads to the number of physical cores. Hopefully no hyperthreading. If so we divide by 2.
+   ! Set the number of threads to the number of physical cores. Hopefully no hyperthreading.
    num_physical_cores = omp_get_num_procs()
    call omp_set_num_threads(num_physical_cores)
 
@@ -33,7 +34,9 @@ subroutine run_simulation()
    ! Call the main simulation routine
    !call Poisson_main(rank, world_size)
    !call nonlinear_1D_test_main(rank, world_size)
-   call Navier_Stokes_2D_main(rank, world_size)
+   !call Navier_Stokes_2D_main(rank, world_size)
+   call TravelingWave_Poisson_2D_main(rank, world_size)
+   !call LinearStandingWave_3D_main(rank, world_size)
 
    ! Finalize MPI
    call finalize_mpi_wrapper()

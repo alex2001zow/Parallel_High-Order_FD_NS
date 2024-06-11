@@ -58,9 +58,9 @@ end subroutine set_function_pointers
 
 pure subroutine calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
    integer, intent(in) :: ndims
-   integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices
-   real, dimension(ndims), intent(in) :: global_domain_begin, dx
-   real, dimension(ndims), intent(out) :: point
+   integer, dimension(:), intent(in) :: global_begin_indices, local_indices
+   real, dimension(:), intent(in) :: global_domain_begin, dx
+   real, dimension(:), intent(out) :: point
 
    integer, dimension(ndims) :: block_index
 

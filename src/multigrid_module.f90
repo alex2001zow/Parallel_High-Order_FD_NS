@@ -1,81 +1,58 @@
 !> This module contains implementations of the necessary functions for the multigrid method
 module multigrid_module
    use utility_functions_module, only: IDX_XD, IDX_XD_INV
+   use block_module, only: block_type
+   use FD_module, only: apply_FDstencil
    implicit none
+
+   private
+
+   public :: full_weighing_restriction_2D, nearest_neighbor_prolongation_2D
 
 contains
 
-   !> Simple injection restriction operator for 2D problems
-   subroutine injection_restriction_2D(ndims, fine_dims, coarse_dims, fine_matrix, coarse_matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: fine_dims, coarse_dims
-      real, dimension(:), intent(in) :: fine_matrix
-      real, dimension(:), intent(inout) :: coarse_matrix
+   !> Full weighing restriction operator for 2D problems
+   subroutine full_weighing_restriction_2D(fine_extended_dims, coarse_extended_dims, fine_residual, coarse_residual)
+      integer, dimension(:), intent(in) :: fine_extended_dims, coarse_extended_dims
+      real, dimension(:,:), intent(in) :: fine_residual
+      real, dimension(:,:), intent(out) :: coarse_residual
 
-      integer :: ii, jj, ii_fine, jj_fine, coarse_index, fine_index
-      integer, dimension(ndims) :: coarse_indices, fine_indices
-
+      integer :: i, j
 
       ! Make it parallel
-      do ii = 1, coarse_dims(1)
-         ii_fine = 2*ii - 1
-         do jj = 1, coarse_dims(2)
-            jj_fine = 2*jj - 1
-            coarse_indices = [ii,jj]
-            fine_indices = [ii_fine,jj_fine]
-            call IDX_XD(ndims,coarse_dims,coarse_indices,coarse_index)
-            call IDX_XD(ndims,fine_dims,fine_indices,fine_index)
-            coarse_matrix(coarse_index) = fine_matrix(fine_index)
+      do i = 1, coarse_extended_dims(1)
+         do j = 1, coarse_extended_dims(2)
+            coarse_residual(i, j) = (4.0 * fine_residual(2*i, 2*j) + &
+               2.0 * (fine_residual(2*i-1, 2*j) + fine_residual(2*i+1, 2*j) + &
+               fine_residual(2*i, 2*j-1) + fine_residual(2*i, 2*j+1)) + &
+               1.0 * (fine_residual(2*i-1, 2*j-1) + fine_residual(2*i+1, 2*j-1) + &
+               fine_residual(2*i-1, 2*j+1) + fine_residual(2*i+1, 2*j+1))) / 16.0
          end do
       end do
 
-   end subroutine injection_restriction_2D
+   end subroutine full_weighing_restriction_2D
 
-   !> Simple linear interpolation operator for 2D problems
-   subroutine linear_prolongation_2D(ndims, fine_dims, coarse_dims, fine_matrix, coarse_matrix)
-      integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: fine_dims, coarse_dims
-      real, dimension(:), intent(in) :: coarse_matrix
-      real, dimension(:), intent(inout) :: fine_matrix
+   !> Nearest neighbor prolongation operator for 2D problems
+   subroutine nearest_neighbor_prolongation_2D(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_solution)
+      integer, dimension(:), intent(in) :: coarse_extended_dims, fine_extended_dims
+      real, dimension(:,:), intent(in) :: coarse_solution
+      real, dimension(:,:), intent(out) :: fine_solution
 
-      integer :: ii, jj, ii_fine, jj_fine, coarse_index, fine_index
-      integer, dimension(ndims) :: coarse_indices, fine_indices
-      real :: weight
+      integer :: i, j
 
-      ! Make it parallel
-      do ii = 1, coarse_dims(1)
-         ii_fine = 2*ii - 1
-         do jj = 1, coarse_dims(2)
-            jj_fine = 2*jj - 1
-            coarse_indices = [ii,jj]
-            fine_indices = [ii_fine,jj_fine]
-            call IDX_XD(ndims,coarse_dims,coarse_indices,coarse_index)
-            call IDX_XD(ndims,fine_dims,fine_indices,fine_index)
-            fine_matrix(fine_index) = coarse_matrix(coarse_index)
-            ! Interpolate in the x direction
-            if (ii < coarse_dims(1)) then
-               fine_indices = [ii_fine+1,jj_fine]
-               call IDX_XD(ndims,fine_dims,fine_indices,fine_index)
-               weight = 0.5
-               fine_matrix(fine_index) = fine_matrix(fine_index) + weight*coarse_matrix(coarse_index)
-            end if
-            ! Interpolate in the y direction
-            if (jj < coarse_dims(2)) then
-               fine_indices = [ii_fine,jj_fine+1]
-               call IDX_XD(ndims,fine_dims,fine_indices,fine_index)
-               weight = 0.5
-               fine_matrix(fine_index) = fine_matrix(fine_index) + weight*coarse_matrix(coarse_index)
-            end if
-            ! Interpolate in the x and y directions
-            if (ii < coarse_dims(1) .and. jj < coarse_dims(2)) then
-               fine_indices = [ii_fine+1,jj_fine+1]
-               call IDX_XD(ndims,fine_dims,fine_indices,fine_index)
-               weight = 0.25
-               fine_matrix(fine_index) = fine_matrix(fine_index) + weight*coarse_matrix(coarse_index)
-            end if
+      ! Initialize the fine solution with zeros
+      fine_solution = 0.0
+
+      ! Perform nearest neighbor prolongation
+      do i = 1, coarse_extended_dims(1)
+         do j = 1, coarse_extended_dims(2)
+            fine_solution(2*i-1, 2*j-1) = coarse_solution(i, j)
+            fine_solution(2*i-1, 2*j) = coarse_solution(i, j)
+            fine_solution(2*i, 2*j-1) = coarse_solution(i, j)
+            fine_solution(2*i, 2*j) = coarse_solution(i, j)
          end do
       end do
 
-   end subroutine linear_prolongation_2D
+   end subroutine nearest_neighbor_prolongation_2D
 
 end module multigrid_module

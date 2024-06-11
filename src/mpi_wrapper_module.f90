@@ -9,9 +9,10 @@ module mpi_wrapper_module
    type block_data_layout_type
       integer :: number_of_existing_neighbors
       integer, dimension(:), allocatable :: neighbor_ranks
-      integer(kind=4) :: elements_per_index_type_4, global_block_type_4, true_block_type_4
+      integer(kind=4) :: elements_per_index_type_4, true_block_type_4
       integer(kind=MPI_OFFSET_KIND) :: writing_offset
       integer(kind=4), dimension(:), allocatable :: send_type_4, recv_type_4
+      integer(kind=4), dimension(:), allocatable :: send_tag_4, recv_tag_4
    end type block_data_layout_type
 
    ! 4 byte integers because of OpenMPI
@@ -54,36 +55,6 @@ contains
       call check_error_mpi(ierr_4)
 
    end subroutine finalize_mpi_wrapper
-
-   !> This subroutine is a wrapper for the MPI_SENDRECV function
-   subroutine isend_mpi_wrapper(array_size, send_array, array_start_index, count, sendrecv_rank, comm, send_request_8)
-
-      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(:), intent(inout) :: send_array
-      integer, intent(out) :: send_request_8
-
-      call MPI_ISEND(send_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, INT(sendrecv_rank,kind=4), &
-         neighbor_sendrecv_tag, int(comm,kind=4), send_request_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      send_request_8 = send_request_4
-
-   end subroutine isend_mpi_wrapper
-
-   !> This subroutine is a wrapper for the MPI_IRECV functions.
-   subroutine irecv_mpi_wrapper(array_size, recv_array, array_start_index, count, sendrecv_rank, comm, recv_request_8)
-
-      integer, intent(in) :: array_size, array_start_index, count, sendrecv_rank, comm
-      real, dimension(:), intent(inout) :: recv_array
-      integer, intent(out) :: recv_request_8
-
-      call MPI_IRECV(recv_array(array_start_index), int(count,kind=4), MPI_DOUBLE_PRECISION, int(sendrecv_rank,kind=4), &
-         neighbor_sendrecv_tag, int(comm,kind=4), recv_request_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      recv_request_8 = recv_request_4
-
-   end subroutine irecv_mpi_wrapper
 
    !> Subroutine wrapper for a wait all operation
    subroutine waitall_mpi_wrapper(num_requests_8, requests_8)
@@ -212,14 +183,14 @@ contains
 
    !> Subroutine to define the whole block, the true block and the offset for writing to a file.
    subroutine define_block_layout(ndims, elements_per_index, grid_size, &
-      bc_begin_c, bc_end_c, ghost_begin_c, ghost_end_c, &
+      ghost_begin_c, ghost_end_c, &
       global_begin_c, global_dims, &
       extended_global_begin_c, extended_global_dims, &
       block_begin_c, block_dims, &
       extended_block_begin_c, extended_block_dims, &
       block_data_layout)
       integer :: ndims, elements_per_index
-      integer, dimension(ndims), intent(in) :: grid_size, bc_begin_c, bc_end_c, ghost_begin_c, ghost_end_c
+      integer, dimension(ndims), intent(in) :: grid_size, ghost_begin_c, ghost_end_c
       integer, dimension(ndims), intent(in) :: global_begin_c, global_dims, extended_global_begin_c, extended_global_dims
       integer, dimension(ndims), intent(in) :: block_begin_c, block_dims, extended_block_begin_c, extended_block_dims
       type(block_data_layout_type), intent(inout) :: block_data_layout
@@ -237,22 +208,11 @@ contains
       call MPI_TYPE_COMMIT(block_data_layout%elements_per_index_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      ! Define the true block in the scope of the global block. This is so we can use it to set a view in the file with an offset of 0 when writing to the file.
-      fullsizes_4 = grid_size
-      subsizes_4 = global_dims
-      starts_4 = global_begin_c
-      !print *, "Global space: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
-      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, &
-         MPI_ORDER_FORTRAN, block_data_layout%elements_per_index_type_4, block_data_layout%global_block_type_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
-      call MPI_TYPE_COMMIT(block_data_layout%global_block_type_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
+      !> The text below is not true we currently specify the full block since there really is no need for the true block.
       ! Define the the true block in the scope of the whole block with stencil points and ghost points. This MPI-datatype should only give use the elements in the true block.
       fullsizes_4 = extended_block_dims
-      subsizes_4 = block_dims
-      starts_4 = block_begin_c
+      subsizes_4 = extended_block_dims
+      starts_4 = extended_block_begin_c
       !print *, "Local block: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
       call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, &
          MPI_ORDER_FORTRAN, block_data_layout%elements_per_index_type_4, block_data_layout%true_block_type_4, ierr_4)
@@ -314,11 +274,11 @@ contains
       neighbor_index_4 = neighbor_index
 
       call MPI_ISEND(matrix, int(1,kind=4), block_data_layout%send_type_4(neighbor_index_4), neighbor_rank_4, &
-         neighbor_sendrecv_tag, comm_cart_4, send_request_4, ierr_4)
+         block_data_layout%send_tag_4(neighbor_index_4), comm_cart_4, send_request_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       call MPI_IRECV(matrix, int(1,kind=4), block_data_layout%recv_type_4(neighbor_index_4), neighbor_rank_4, &
-         neighbor_sendrecv_tag, comm_cart_4, recv_request_4, ierr_4)
+         block_data_layout%recv_tag_4(neighbor_index_4), comm_cart_4, recv_request_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       send_request = send_request_4
@@ -337,9 +297,6 @@ contains
       call MPI_TYPE_FREE(block_data_layout%elements_per_index_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_TYPE_FREE(block_data_layout%global_block_type_4, ierr_4)
-      call check_error_mpi(ierr_4)
-
       call MPI_TYPE_FREE(block_data_layout%true_block_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
@@ -355,6 +312,8 @@ contains
 
       if (allocated(block_data_layout%send_type_4)) deallocate(block_data_layout%send_type_4)
       if (allocated(block_data_layout%recv_type_4)) deallocate(block_data_layout%recv_type_4)
+      if (allocated(block_data_layout%send_tag_4)) deallocate(block_data_layout%send_tag_4)
+      if (allocated(block_data_layout%recv_tag_4)) deallocate(block_data_layout%recv_tag_4)
    end subroutine free_block_layout_type
 
    ! Subroutine to write block data to a file
@@ -378,7 +337,7 @@ contains
       call check_error_mpi(ierr_4)
 
       call MPI_FILE_SET_VIEW(solution_fh_4, offset_4, MPI_DOUBLE_PRECISION, &
-         block_data_layout%global_block_type_4, "native", MPI_INFO_NULL, ierr_4)
+         block_data_layout%true_block_type_4, "native", MPI_INFO_NULL, ierr_4)
       call check_error_mpi(ierr_4)
 
       call MPI_FILE_WRITE_ALL(solution_fh_4, block_data, elements_to_write_4, &

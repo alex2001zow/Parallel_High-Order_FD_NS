@@ -4,7 +4,7 @@ module Poisson_module
    use mpi_wrapper_module, only: all_reduce_mpi_wrapper, write_block_data_to_file
 
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
-      print_cart_comm_type, print_cartesian_grid
+      print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, apply_FDstencil, update_value_from_stencil, get_FD_coefficients_from_index, &
       calculate_scaled_coefficients
@@ -144,8 +144,10 @@ contains
       type(block_type) :: block_params
       type(ResultType) :: result
 
-      bc_begin = 0
-      bc_end = 0
+      logical, dimension(ndims) :: periods
+
+      periods = .false.
+
       ghost_begin = 0!stencil_sizes/2
       ghost_end = 0!stencil_sizes/2
       stencil_begin = stencil_sizes/2
@@ -153,10 +155,10 @@ contains
 
       num_data_elements = [1,1,1,1,1]
 
-      call create_cart_comm_type(ndims, processor_dims, rank, world_size, comm_params)
+      call create_cart_comm_type(ndims, processor_dims, periods, .true., rank, world_size, comm_params)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
+         ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
@@ -186,9 +188,6 @@ contains
       if(rank == MASTER_RANK) then
          call print_resultType(result)
          write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
-
-         ! Write out the cartesian grid from the master rank
-         call print_cartesian_grid(ndims, comm_params%comm, world_size, processor_dims, "output/output_from_")
       end if
 
       ! Write out our setup to a file. Just for debugging purposes
@@ -305,15 +304,15 @@ contains
 
       integer, dimension(block_params%ndims) :: dims_to_run, begin, end
       integer :: ii,jj, global_iter, global_index
-      integer, dimension(block_params%ndims) :: local_indices, global_indices, alphas
-      real, dimension(:), pointer :: coefficients, dfxx, dfyy
+      integer, dimension(block_params%ndims) :: local_indices, global_indices, alphas, betas
+      real, contiguous, dimension(:), pointer :: coefficients, dfxx, dfyy
       real :: old_val, new_val, f_val
       real, dimension(block_params%ndims) :: point
       real, dimension(product(FDstencil_params%stencil_sizes)) :: combined_stencils
 
       begin = (block_params%block_begin_c+1)
       end = (block_params%block_end_c-1)
-      dims_to_run = end - (begin + 1) + 1
+      dims_to_run = end - (begin + 1) + 1 ! Should remove the ones.
 
       norm = 0.0
       do global_iter = 1, product(dims_to_run)
@@ -327,7 +326,7 @@ contains
          call get_FD_coefficients_from_index(block_params%ndims, FDstencil_params%num_derivatives, &
             FDstencil_params%stencil_sizes, &
             block_params%extended_block_begin_c+1, block_params%extended_block_dims, local_indices, &
-            FDstencil_params%scaled_stencil_coefficients, alphas, coefficients)
+            FDstencil_params%scaled_stencil_coefficients, alphas, betas, coefficients)
          !print *, global_index, local_indices, alphas
 
          combined_stencils = 0.0

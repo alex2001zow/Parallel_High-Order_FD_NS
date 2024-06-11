@@ -194,13 +194,13 @@ contains
       real, dimension(:), intent(inout) :: matrix
       real, intent(inout) :: norm
 
-      integer, dimension(ndims) :: local_dims, index, alphas
+      integer, dimension(ndims) :: local_dims, index, alphas, betas
       integer :: global_index, local_index, start_index, end_index
       real, dimension(functions%rhs_func%output_size) :: f_val, old_val, new_val, residual, Jac_residual
 
       real, dimension(FDstencil%num_stencil_elements) :: combined_stencil_coefficients
 
-      real, dimension(:), pointer :: pointer_to_coefficients
+      real, contiguous, dimension(:), pointer :: pointer_to_coefficients
 
       local_dims = end - begin + 1
 
@@ -221,7 +221,7 @@ contains
             global_domain_begin, global_domain_end, global_domain_size, dx, f_val)
 
          call get_FD_coefficients_from_index(ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-            start_dims, dims, index, FDstencil%scaled_stencil_coefficients, alphas, pointer_to_coefficients)
+            start_dims, dims, index, FDstencil%scaled_stencil_coefficients, alphas, betas, pointer_to_coefficients)
 
          ! Call the system solver
          call SystemSolver%solver(ndims, functions%rhs_func%output_size, &

@@ -1,7 +1,10 @@
 module utility_functions_module
+   use, intrinsic :: iso_c_binding
    implicit none
 
    private
+   public :: reshape_real_1D_to_2D, reshape_real_1D_to_3D, reshape_real_1D_to_4D, reshape_real_1D_to_5D, &
+      reshape_real_1D_to_6D, reshape_real_1D_to_7D
    public :: IDX_XD, IDX_XD_INV
    public :: print_real_array, print_integer_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
@@ -10,10 +13,70 @@ module utility_functions_module
 
 contains
 
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 2D-array
+   subroutine reshape_real_1D_to_2D(dims, array_1D, array_2D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:), pointer, intent(out) :: array_2D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_2D, dims)
+   end subroutine reshape_real_1D_to_2D
+
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 3D-array
+   subroutine reshape_real_1D_to_3D(dims, array_1D, array_3D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:,:), pointer, intent(out) :: array_3D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_3D, dims)
+   end subroutine reshape_real_1D_to_3D
+
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 4D-array
+   subroutine reshape_real_1D_to_4D(dims, array_1D, array_4D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:,:,:), pointer, intent(out) :: array_4D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_4D, dims)
+   end subroutine reshape_real_1D_to_4D
+
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 5D-array
+   subroutine reshape_real_1D_to_5D(dims, array_1D, array_5D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:,:,:,:), pointer, intent(out) :: array_5D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_5D, dims)
+   end subroutine reshape_real_1D_to_5D
+
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 6D-array
+   subroutine reshape_real_1D_to_6D(dims, array_1D, array_6D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:,:,:,:,:), pointer, intent(out) :: array_6D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_6D, dims)
+   end subroutine reshape_real_1D_to_6D
+
+   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 7D-array
+   subroutine reshape_real_1D_to_7D(dims, array_1D, array_7D)
+      integer, dimension(:), intent(in) :: dims
+      real, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      real, contiguous, dimension(:,:,:,:,:,:,:), pointer, intent(out) :: array_7D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_7D, dims)
+   end subroutine reshape_real_1D_to_7D
+
    !> Global index from ndims, dims, indices.
    pure subroutine IDX_XD(ndims, dims, indices, global_index)
       integer, intent(in) :: ndims
-      integer, dimension(:), intent(in) :: dims, indices
+      integer, contiguous, dimension(:), intent(in) :: dims, indices
       integer, intent(out) :: global_index
 
       integer :: d, stride
@@ -33,8 +96,8 @@ contains
    !> Dimensional indices from ndims, dims, global_index.
    pure subroutine IDX_XD_INV(ndims, dims, global_index, indices)
       integer, intent(in) :: ndims, global_index
-      integer, dimension(:), intent(in) :: dims
-      integer, dimension(:), intent(out) :: indices
+      integer, contiguous, dimension(:), intent(in) :: dims
+      integer, contiguous, dimension(:), intent(out) :: indices
 
       integer :: d, remaining_index, stride
 
@@ -60,84 +123,96 @@ contains
    end subroutine IDX_XD_INV
 
    !> Routine to print an array of type real
-   subroutine print_real_array(ndims, dims, array, stride, title, iounit)
+   subroutine print_real_array(ndims, dims, begin_c, end_c, array, stride, title, iounit)
       integer, intent(in) :: ndims, stride, iounit
-      integer, dimension(:), intent(in) :: dims
+      integer, dimension(:), intent(in) :: dims, begin_c, end_c
       real, dimension(:), intent(in) :: array
       character(len=*), intent(in) :: title
 
-      integer :: do_end, global_index, d, start_index, end_index
-      integer, dimension(ndims) :: indices
+      integer :: ii, jj, kk, global_index
 
-      character(len=32) :: format_str   ! Length to be adjusted based on expected size
-      character(len=10) :: element_format
-      character(len=255) :: write_format
+      character(len=32) :: element_format
 
-      element_format = 'F10.3'  ! Format for each element
-      write(format_str, '(I32)') dims(1) * stride
-      write(write_format, '(*(A))') '(', trim(adjustl(format_str)), '(', element_format, '))'
-
-
-      if(ndims > 1) then
-         do_end = product(dims(2:ndims))
-      else
-         do_end = 1
-      end if
+      element_format = "(F10.3)"  ! Format for each element
 
       write(iounit, *) title
-      do global_index = 1, do_end
-         call IDX_XD_INV(ndims, dims, global_index, indices)
-         start_index = (global_index - 1) * dims(1) * stride + 1
-         end_index = global_index * dims(1) * stride
-         write(iounit, write_format) array(start_index:end_index)
-
-         do d = ndims, 3, -1
-            if (indices(d) == dims(d)) then
-               write(iounit, *)
-            end if
+      select case(ndims)
+       case (1)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
          end do
-      end do
+
+       case (2)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, *)
+            do jj = begin_c(2)+1,end_c(2)
+               call IDX_XD(ndims, dims, [ii, jj], global_index)
+               write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
+            end do
+         end do
+
+       case (3)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, *)
+            write(iounit, *)
+            write(iounit, *) "ii: ", ii
+            do jj = begin_c(2)+1, end_c(2)
+               write(iounit, *)
+               do kk = begin_c(3)+1, end_c(3)
+                  call IDX_XD(ndims, dims, [ii, jj, kk], global_index)
+                  write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
+               end do
+            end do
+         end do
+
+      end select
 
    end subroutine print_real_array
 
    !> Routine to print an array of type integer
-   subroutine print_integer_array(ndims, dims, array, stride, title, iounit)
+   subroutine print_integer_array(ndims, dims, begin_c, end_c, array, stride, title, iounit)
       integer, intent(in) :: ndims, stride, iounit
-      integer, dimension(:), intent(in) :: dims
+      integer, dimension(:), intent(in) :: dims, begin_c, end_c
       integer, dimension(:), intent(in) :: array
       character(len=*), intent(in) :: title
 
-      integer :: do_end, global_index, d, start_index, end_index
-      integer, dimension(ndims) :: indices
+      integer :: ii, jj, kk, global_index
 
-      character(len=32) :: format_str    ! Length to be adjusted based on expected size
-      character(len=5) :: element_format
-      character(len=255) :: write_format
+      character(len=32) :: element_format
 
-      element_format = 'I6'  ! Format for each element, adjust width as needed
-      write(format_str, '(I32)') dims(1) * stride
-      write(write_format, '(*(A))') '(', trim(adjustl(format_str)), '(', element_format, '))'
-
-
-      if(ndims > 1) then
-         do_end = product(dims(2:ndims))
-      else
-         do_end = 1
-      end if
+      element_format = "(I6)"  ! Format for each element
 
       write(iounit, *) title
-      do global_index = 1, do_end
-         call IDX_XD_INV(ndims, dims, global_index, indices)
-         start_index = (global_index - 1) * dims(1) * stride + 1
-         end_index = global_index * dims(1) * stride
-         write(iounit, write_format) array(start_index:end_index)
-
-         do d = ndims, 3, -1
-            if (indices(d) == dims(d)) then
-               write(iounit, *)
-            end if
+      select case(ndims)
+       case (1)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
          end do
-      end do
+
+       case (2)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, *)
+            do jj = begin_c(2)+1,end_c(2)
+               call IDX_XD(ndims, dims, [ii, jj], global_index)
+               write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
+            end do
+         end do
+
+       case (3)
+         do ii = begin_c(1)+1, end_c(1)
+            write(iounit, *)
+            write(iounit, *)
+            write(iounit, *) "ii: ", ii
+            do jj = begin_c(2)+1, end_c(2)
+               write(iounit, *)
+               do kk = begin_c(3)+1, end_c(3)
+                  call IDX_XD(ndims, dims, [ii, jj, kk], global_index)
+                  write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
+               end do
+            end do
+         end do
+
+      end select
 
    end subroutine print_integer_array
 
