@@ -9,7 +9,7 @@ module mpi_wrapper_module
    type block_data_layout_type
       integer :: number_of_existing_neighbors
       integer, dimension(:), allocatable :: neighbor_ranks
-      integer(kind=4) :: elements_per_index_type_4, true_block_type_4
+      integer(kind=4) :: elements_per_index_type_4, global_block_type_4, true_block_type_4
       integer(kind=MPI_OFFSET_KIND) :: writing_offset
       integer(kind=4), dimension(:), allocatable :: send_type_4, recv_type_4
       integer(kind=4), dimension(:), allocatable :: send_tag_4, recv_tag_4
@@ -202,17 +202,30 @@ contains
       elements_per_index_4 = elements_per_index
 
       ! Define the number of elements for each index in the block
-      call MPI_TYPE_CONTIGUOUS(elements_per_index_4, MPI_DOUBLE_PRECISION, block_data_layout%elements_per_index_type_4, ierr_4)
+      call MPI_TYPE_CONTIGUOUS(elements_per_index_4, MPI_REAL8, block_data_layout%elements_per_index_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
       call MPI_TYPE_COMMIT(block_data_layout%elements_per_index_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
-      !> The text below is not true we currently specify the full block since there really is no need for the true block.
-      ! Define the the true block in the scope of the whole block with stencil points and ghost points. This MPI-datatype should only give use the elements in the true block.
+      ! Define the full block with stencil points and ghost points In the global block space.
+      fullsizes_4 = grid_size
+      subsizes_4 = global_dims
+      starts_4 = global_begin_c
+      where(starts_4 /= 0)
+         starts_4 = starts_4 - ghost_begin_c !- 1
+      end where
+      !print *, "Global block: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
+      call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, MPI_ORDER_FORTRAN, &
+         block_data_layout%elements_per_index_type_4, block_data_layout%global_block_type_4, ierr_4)
+
+      call MPI_TYPE_COMMIT(block_data_layout%global_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
+      ! Define the true block without stencil points and ghost points. This is the real block that we want to write to a file.
       fullsizes_4 = extended_block_dims
-      subsizes_4 = extended_block_dims
-      starts_4 = extended_block_begin_c
+      subsizes_4 = block_dims
+      starts_4 = block_begin_c
       !print *, "Local block: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
       call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, &
          MPI_ORDER_FORTRAN, block_data_layout%elements_per_index_type_4, block_data_layout%true_block_type_4, ierr_4)
@@ -220,6 +233,8 @@ contains
 
       call MPI_TYPE_COMMIT(block_data_layout%true_block_type_4, ierr_4)
       call check_error_mpi(ierr_4)
+
+      block_data_layout%writing_offset = 0
 
    end subroutine define_block_layout
 
@@ -297,6 +312,9 @@ contains
       call MPI_TYPE_FREE(block_data_layout%elements_per_index_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
+      call MPI_TYPE_FREE(block_data_layout%global_block_type_4, ierr_4)
+      call check_error_mpi(ierr_4)
+
       call MPI_TYPE_FREE(block_data_layout%true_block_type_4, ierr_4)
       call check_error_mpi(ierr_4)
 
@@ -328,7 +346,7 @@ contains
       integer(kind=4), dimension(MPI_STATUS_SIZE) :: solution_status
 
       comm_4 = comm
-      offset_4 = 0
+      offset_4 = block_data_layout%writing_offset ! Is zero
       elements_to_write_4 = 1
 
       ! Write the solution to the file
@@ -337,10 +355,10 @@ contains
       call check_error_mpi(ierr_4)
 
       call MPI_FILE_SET_VIEW(solution_fh_4, offset_4, MPI_DOUBLE_PRECISION, &
-         block_data_layout%true_block_type_4, "native", MPI_INFO_NULL, ierr_4)
+         block_data_layout%global_block_type_4, "native", MPI_INFO_NULL, ierr_4)
       call check_error_mpi(ierr_4)
 
-      call MPI_FILE_WRITE_ALL(solution_fh_4, block_data, elements_to_write_4, &
+      call MPI_FILE_WRITE_ALL(solution_fh_4, real(block_data,kind=8), elements_to_write_4, &
          block_data_layout%true_block_type_4, solution_status, ierr_4)
       call check_error_mpi(ierr_4)
 

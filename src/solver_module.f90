@@ -267,7 +267,7 @@ contains
       real, dimension(4), intent(inout) :: norm_array
       integer, intent(out) :: converged
 
-      real :: current_relative_norm, rel_rel_diff
+      real :: previous_relative_norm, current_relative_norm
 
       ! Find the global norm from all blocks
       call all_reduce_mpi_wrapper(norm_array(1), norm_array(2), 1, &
@@ -279,13 +279,10 @@ contains
       ! Calculate the relative difference
       call calculate_relative_difference(norm_array(3), norm_array(2), current_relative_norm)
 
-      ! Calculate the relative difference of the relative difference
-      call calculate_relative_difference(norm_array(4), current_relative_norm, rel_rel_diff)
-
-      if (rel_rel_diff > (1.0 + divergence_tol)) then
-         converged = -1 ! Indicate divergence
-      else if(current_relative_norm < tol) then
+      if(current_relative_norm < tol) then
          converged = 1 ! Indicate convergence
+      else if(current_relative_norm > previous_relative_norm + divergence_tol) then
+         converged = -1 ! Indicate divergence
       else
          converged = 0 ! Still converging
       end if

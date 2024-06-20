@@ -7,11 +7,12 @@ module FD_test_module
       print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, &
-      apply_FDstencil, update_value_from_stencil, calculate_scaled_coefficients, get_FD_coefficients_from_index
+      apply_FDstencil, apply_FDstencil_2D, calculate_scaled_coefficients, get_FD_coefficients_from_index
    use block_module, only: block_type, create_block_type, deallocate_block_type, sendrecv_data_neighbors, print_block_type
    use functions_module, only: FunctionPtrType, FunctionPair, set_function_pointers, calculate_point
 
-   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers
+   use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers, &
+      reshape_real_1D_to_2D
    use initialization_module, only: write_function_to_block, write_initial_condition_and_boundary
 
    use solver_module, only: SolverParamsType, set_SolverParamsType, &
@@ -20,308 +21,171 @@ module FD_test_module
 
    private
 
+   !> Number of dimensions of number of derivatives
+   integer, parameter :: ndims = 2, num_derivatives = 4
+   integer, dimension(ndims * num_derivatives), parameter :: derivatives = [1,0,0,1,2,0,0,2] ! dx, dy, dxx, dyy
+
+   !> Grid parameters
+   integer, dimension(ndims), parameter :: grid_size = [32,32]
+   integer, dimension(ndims), parameter :: processor_dims = [1,1]
+   logical, dimension(ndims), parameter :: periods = [.false., .false.]
+   logical, parameter :: reorder = .true.
+   real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [1,1]
+   integer, dimension(ndims), parameter :: stencil_sizes = 11
+   integer, dimension(ndims), parameter :: ghost_begin = [0,0] , ghost_end = [0,0]
+   integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end=stencil_sizes/2
+
    public :: FD_test_main
 
 contains
 
-   !> x and y dimensions are switched due to FORTRAN column-major ordering. It works if you switch the stencil order at around line 67.
    subroutine FD_test_main(rank, world_size)
       integer, intent(in) :: rank, world_size
 
-      integer :: ndims
-      integer, dimension(:), allocatable :: grid_size, processor_dims, stencil_sizes
-      real, dimension(:), allocatable :: domain_begin, domain_end
-      type(SolverParamsType) :: solver_params
-
-      ndims = 2
-
-      allocate(grid_size(ndims))
-      allocate(processor_dims(ndims))
-      allocate(domain_begin(ndims))
-      allocate(domain_end(ndims))
-      allocate(stencil_sizes(ndims))
-
-      grid_size = 8
-      processor_dims = 1
-      domain_begin = 0
-      domain_end = 1
-      stencil_sizes = 3
-
-      ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1.0, 1.0, 1, 2, solver_params)
-
-      call FD_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         stencil_sizes, solver_params)
-
-   end subroutine FD_test_main
-
-   !> The analytical solution of the 2D Navier-Stokes equation
-   subroutine FD_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      stencil_sizes, solver_params)
-      integer, intent(in) :: ndims, rank, world_size
-      integer, dimension(2), intent(in) :: grid_size, processor_dims, stencil_sizes
-      real, dimension(2), intent(in) :: domain_begin, domain_end
-      type(SolverParamsType), intent(in) :: solver_params
-
-      integer, parameter :: num_derivatives = 4
-      integer, dimension(2*num_derivatives), parameter :: derivatives = [0,1,1,0,0,2,2,0]
-
-      call FD_test_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, stencil_sizes, solver_params)
-
-   end subroutine FD_test
-
-   !> Solve the 2D Navier-Stokes equation
-   subroutine FD_test_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      num_derivatives, derivatives, stencil_sizes, solver_params)
-      integer, intent(in) :: ndims, rank, world_size
-      integer, dimension(:), intent(in) :: grid_size, processor_dims
-      real, dimension(:), intent(in) :: domain_begin, domain_end
-
-      integer, intent(in) :: num_derivatives
-      integer, dimension(:), intent(in) :: derivatives, stencil_sizes
-      type(SolverParamsType), intent(in) :: solver_params
-
-      integer :: iounit, ii, converged, iter
-      real, dimension(4) :: result_array_with_timings
-
-      real :: dt
+      integer :: iounit
 
       type(comm_type) :: comm_params
       type(FDstencil_type) :: FDstencil_params
-      type(block_type) :: test_block_params
-      type(FunctionPtrType) :: u_test_2D_func
+      type(block_type) :: FD_block
 
-      logical, dimension(ndims) :: periods
-
-      periods = .false.
-
-      u_test_2D_func%output_size = 1
-      u_test_2D_func%func => u_test_2D
-
-      call create_cart_comm_type(ndims, processor_dims, periods, .true., rank, world_size, comm_params)
-
-      !call sleeper_function(1)
+      call create_cart_comm_type(ndims, processor_dims, periods, reorder, rank, world_size, comm_params)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         grid_size * 0, grid_size * 0, stencil_sizes/2, stencil_sizes/2, test_block_params)
+         ghost_begin, ghost_end, stencil_begin, stencil_end, FD_block)
 
-      call write_function_to_block(test_block_params%ndims, 1, test_block_params%domain_begin, test_block_params%domain_end, &
-         test_block_params%extended_grid_size, test_block_params%global_begin_c+1, test_block_params%global_dims, &
-         test_block_params%matrix, test_block_params%extended_grid_dx, u_test_2D_func)
+      call write_analytical_function(FD_block)
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
-      !! Scale the coefficients by dx
-      call calculate_scaled_coefficients(ndims, test_block_params%extended_grid_dx, FDstencil_params)
-
-      call test_fd_method(test_block_params, FDstencil_params)
+      ! Apply the FD stencil to the block
+      call test_fd_method(FD_block, FDstencil_params)
 
       ! Write out our setup to a file. Just for debugging purposes
       call open_txt_file("output/output_from_", rank, iounit)
 
-      call print_cart_comm_type(comm_params, iounit)
+      !call print_cart_comm_type(comm_params, iounit)
 
-      call print_finite_difference_stencil(ndims, FDstencil_params, iounit)
+      !call print_finite_difference_stencil(FDstencil_params, iounit)
 
-      call print_block_type(ndims, test_block_params, iounit)
+      call print_block_type(FD_block, iounit)
 
       call close_txt_file(iounit)
 
-      ! ! Write out system solution to a file
-      call write_block_data_to_file(test_block_params%data_layout, "output/system_solution.dat", &
-         comm_params%comm, test_block_params%matrix)
+      ! Write out system solution to a file
+      call write_block_data_to_file(FD_block%data_layout, "output/system_solution.dat", &
+         comm_params%comm, FD_block%matrix_ptr)
+
+      call write_block_data_to_file(FD_block%data_layout, "output/residual_solution.dat", &
+         comm_params%comm, FD_block%f_matrix_ptr)
 
       ! Deallocate data
-
       call deallocate_cart_comm_type(comm_params)
 
-      call deallocate_block_type(test_block_params)
+      call deallocate_block_type(FD_block)
 
       call deallocate_finite_difference_stencil(FDstencil_params)
 
-   end subroutine FD_test_test
-
+   end subroutine FD_test_main
 
    subroutine test_fd_method(test_block, FDstencil)
       type(block_type), intent(inout) :: test_block
-      type(FDstencil_type), target, intent(inout) :: FDstencil
+      type(FDstencil_type), intent(inout) :: FDstencil
 
-      integer :: ndims, ii, jj, global_index, num_elements
+      integer :: ii, jj, i, j, iounit
 
       real, contiguous, dimension(:), pointer :: coefficients
-      real, contiguous, dimension(:), pointer :: dfx, dfy, dfxx, dfyy
-      integer, dimension(test_block%ndims) :: stencil_size, alphas, betas, start_dims, index
+      real, contiguous, dimension(:), pointer :: dx, dy, dxx, dyy
+      real, contiguous, dimension(:,:), pointer :: dx_2D, dy_2D, dxx_2D, dyy_2D
+      integer, dimension(ndims) :: stencil_size, alpha, beta, start_dims, local_indices
 
       real :: u_x, u_y, u_xx, u_yy
 
-      real, dimension(1) :: u_x_test, u_y_test, u_xx_test, u_yy_test
+      call open_txt_file("output/output_aaaaa.", MASTER_RANK, iounit)
 
-      real, dimension(test_block%ndims) :: global_domain_begin, global_domain_end, dx
-      integer, dimension(test_block%ndims) :: global_domain_size, global_begin_indices
+      call calculate_scaled_coefficients(ndims, test_block%extended_grid_dx, FDstencil)
 
-      real :: error
-
-      ndims = test_block%ndims
-
-      global_domain_begin = test_block%domain_begin
-      global_domain_end = test_block%domain_end
-
-      global_domain_size = test_block%extended_local_size
-      global_begin_indices = 1
-
-      dx = test_block%extended_grid_dx
-
-      num_elements = 1
-
-      start_dims = 1
-
-      stencil_size = FDstencil%stencil_sizes
-
-      error = 0.0
-      do ii = 1, test_block%extended_local_size(1)
-         do jj = 1, test_block%extended_local_size(2)
-            index = [ii,jj]
-            call IDX_XD(test_block%ndims, test_block%extended_local_size, index, global_index)
+      do ii = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
+         do jj = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
+            local_indices = [jj,ii]
 
             call get_FD_coefficients_from_index(test_block%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-               start_dims, test_block%extended_local_size, index, FDstencil%scaled_stencil_coefficients, alphas, betas, &
+               [1,1], test_block%extended_block_dims, local_indices, &
+               FDstencil%scaled_stencil_coefficients, alpha, beta, &
                coefficients)
 
-            dfx => coefficients(1:FDstencil%num_stencil_elements)
-            dfy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
-            dfxx => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
-            dfyy => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
+            dx => coefficients(1:FDstencil%num_stencil_elements)
+            dy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
+            dxx => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
+            dyy => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-            call apply_FDstencil(test_block%ndims, num_elements, 0, stencil_size, alphas, dfx, &
-               test_block%extended_local_size, index, test_block%matrix, u_x)
-            call apply_FDstencil(test_block%ndims, num_elements, 0, stencil_size, alphas, dfy, &
-               test_block%extended_local_size, index, test_block%matrix, u_y)
-            call apply_FDstencil(test_block%ndims, num_elements, 0, stencil_size, alphas, dfxx, &
-               test_block%extended_local_size, index, test_block%matrix, u_xx)
-            call apply_FDstencil(test_block%ndims, num_elements, 0, stencil_size, alphas, dfyy, &
-               test_block%extended_local_size, index, test_block%matrix, u_yy)
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dx, dx_2D)
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dy, dy_2D)
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dxx, dxx_2D)
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dyy, dyy_2D)
 
-            call ux_test_2D(ndims, num_elements, global_begin_indices, index, &
-               global_domain_begin, global_domain_end, global_domain_size, dx, u_x_test)
-            call uy_test_2D(ndims, num_elements, global_begin_indices, index, &
-               global_domain_begin, global_domain_end, global_domain_size, dx, u_y_test)
-            call uxx_test_2D(ndims, num_elements, global_begin_indices, index, &
-               global_domain_begin, global_domain_end, global_domain_size, dx, u_xx_test)
-            call uyy_test_2D(ndims, num_elements, global_begin_indices, index, &
-               global_domain_begin, global_domain_end, global_domain_size, dx, u_yy_test)
+            ! write(iounit,*) alpha, beta
+            ! write(iounit,*) coefficients
+            ! do i = 1, FDstencil%stencil_sizes(2)
+            !    write(iounit,*)
+            !    write(iounit,*) dx_2D(:,i)
+            ! end do
 
-            error = error + abs(u_x - u_x_test(1)) + abs(u_y - u_y_test(1)) + abs(u_xx - u_xx_test(1)) + abs(u_yy - u_yy_test(1))
+            call apply_FDstencil_2D(dx_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_x)
+            call apply_FDstencil_2D(dy_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_y)
+            call apply_FDstencil_2D(dxx_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_xx)
+            call apply_FDstencil_2D(dyy_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_yy)
 
-            write(*,*) " u_x Diff: ", abs(u_x - u_x_test(1)), " u_y Diff: ", abs(u_y - u_y_test(1)), &
-               " u_xx Diff: ", abs(u_xx - u_xx_test(1)), " u_yy Diff: ", abs(u_yy - u_yy_test(1))
+            !call apply_FDstencil(test_block%ndims, 1, 0, FDstencil%stencil_sizes, alpha, coefficients, &
+            !   test_block%extended_block_dims, local_indices, test_block%matrix_ptr, u_x)
+
+            test_block%f_matrix_ptr_2D(jj, ii) = u_xx
 
          end do
       end do
 
-      write(*,*) "Error: ", (error/4.0) * (1.0/product(test_block%extended_local_size))
+      call close_txt_file(iounit)
 
    end subroutine test_fd_method
 
-   pure subroutine u_test_2D(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
+   pure subroutine write_analytical_function(test_block)
+      type (block_type), intent(inout) :: test_block
 
-      real, dimension(num_elements), intent(inout) :: func_val
-
+      integer :: ii, jj
+      integer, dimension(ndims) :: local_indices, global_indices
       real, dimension(ndims) :: point
-      real :: x, y
+      real :: x, y, u, u_x, u_y, u_xx, u_yy
 
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
+      do ii = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
+         do jj = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
+            local_indices = [jj,ii]
+            global_indices = test_block%extended_global_begin_c + local_indices
 
-      x = point(1)
-      y = point(2)
+            call calculate_point(test_block%ndims, -test_block%global_grid_begin, global_indices, &
+               test_block%domain_begin, test_block%grid_dx, point)
 
-      func_val(1) = 3*x*x + 2*x*y + y*y*y - 4*y + 7
+            x = point(1)
+            y = point(2)
 
-   end subroutine u_test_2D
+            call analytical_test_function_2D(x, y, u, u_x, u_y, u_xx, u_yy)
 
-   pure subroutine ux_test_2D(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
+            test_block%matrix_ptr_2D(local_indices(1), local_indices(2)) = u
 
-      real, dimension(num_elements), intent(inout) :: func_val
+         end do
+      end do
 
-      real, dimension(ndims) :: point
-      real :: x, y
+   end subroutine write_analytical_function
 
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
+   pure subroutine analytical_test_function_2D(x,y, u, u_x, u_y, u_xx, u_yy)
+      real, intent(in) :: x, y
+      real, intent(out) :: u, u_x, u_y, u_xx, u_yy
 
-      x = point(1)
-      y = point(2)
+      u = 3*x*x + 2*x*y + y*y*y - 4*y + 7 + exp(3*x)
+      u_x = 6*x + 2*y + 3*exp(3*x)
+      u_y = 2*x + 3*y*y - 4
+      u_xx = 6 + 9*exp(3*x)
+      u_yy = 6*y
 
-      func_val(1) = 6*x + 2*y
-
-   end subroutine ux_test_2D
-
-   pure subroutine uy_test_2D(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-
-      real, dimension(num_elements), intent(inout) :: func_val
-
-      real, dimension(ndims) :: point
-      real :: x, y
-
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
-
-      x = point(1)
-      y = point(2)
-
-      func_val(1) = 2*x + 3*y*y - 4
-
-   end subroutine uy_test_2D
-
-   pure subroutine uxx_test_2D(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-
-      real, dimension(num_elements), intent(inout) :: func_val
-
-      real, dimension(ndims) :: point
-      real :: x, y
-
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
-
-      x = point(1)
-      y = point(2)
-
-      func_val(1) = 6
-
-   end subroutine uxx_test_2D
-
-   pure subroutine uyy_test_2D(ndims, num_elements, global_begin_indices, local_indices, &
-      global_domain_begin, global_domain_end, global_domain_size, dx, func_val)
-      integer, intent(in) :: ndims, num_elements
-      integer, dimension(ndims), intent(in) :: global_begin_indices, local_indices, global_domain_size
-      real, dimension(ndims), intent(in) :: global_domain_begin, global_domain_end, dx
-
-      real, dimension(num_elements), intent(inout) :: func_val
-
-      real, dimension(ndims) :: point
-      real :: x, y
-
-      call calculate_point(ndims, global_begin_indices, local_indices, global_domain_begin, dx, point)
-
-      x = point(1)
-      y = point(2)
-
-      func_val(1) = 6*y
-
-   end subroutine uyy_test_2D
+   end subroutine analytical_test_function_2D
 
 end module FD_test_module
 

@@ -16,6 +16,7 @@ subroutine run_simulation()
    use Navier_Stokes_2D_module_old, only: Navier_Stokes_2D_main
    use TravelingWave_Poisson_2D_module, only: TravelingWave_Poisson_2D_main
    !use LinearStandingWave_3D_module, only: LinearStandingWave_3D_main
+   use scalapack_module, only: solve_pde_with_scalapack
    implicit none
 
    integer :: num_physical_cores, rank, world_size
@@ -32,11 +33,13 @@ subroutine run_simulation()
    !call block_test_main(rank, world_size)
 
    ! Call the main simulation routine
-   !call Poisson_main(rank, world_size)
+   call Poisson_main(rank, world_size)
    !call nonlinear_1D_test_main(rank, world_size)
    !call Navier_Stokes_2D_main(rank, world_size)
-   call TravelingWave_Poisson_2D_main(rank, world_size)
+   !call TravelingWave_Poisson_2D_main(rank, world_size)
    !call LinearStandingWave_3D_main(rank, world_size)
+
+   !call solve_pde_with_scalapack(rank, world_size)
 
    ! Finalize MPI
    call finalize_mpi_wrapper()

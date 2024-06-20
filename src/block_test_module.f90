@@ -18,6 +18,17 @@ module block_test_module
    implicit none
 
    private
+   !> Number of dimensions and number of derivatives
+   integer, parameter :: ndims = 2
+
+   !> Grid parameters
+   integer, dimension(ndims), parameter :: grid_size = 8, processor_dims = [2,2]
+   logical, dimension(ndims), parameter :: periods = [.false.,.false.]
+   logical, parameter :: reorder = .true.
+   real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
+   integer, dimension(ndims), parameter :: stencil_sizes = 3
+   integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
+   integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    public :: block_test_main
 
@@ -26,85 +37,10 @@ contains
    subroutine block_test_main(rank, world_size)
       integer, intent(in) :: rank, world_size
 
-      integer :: ndims
-      integer, dimension(:), allocatable :: grid_size, processor_dims, stencil_sizes
-      real, dimension(:), allocatable :: domain_begin, domain_end
-      type(SolverParamsType) :: solver_params
-
-      ndims = 2
-
-      allocate(grid_size(ndims))
-      allocate(processor_dims(ndims))
-      allocate(domain_begin(ndims))
-      allocate(domain_end(ndims))
-      allocate(stencil_sizes(ndims))
-
-      grid_size = 4
-      processor_dims = 1
-      domain_begin = 0
-      domain_end = 1
-      stencil_sizes = 3
-
-      ! Set the solver parameters tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(1e-6, 1e-2, 10000, 2, solver_params)
-
-      call block_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         stencil_sizes, solver_params)
-
-      ! Deallocate the system setup
-      if (allocated(grid_size)) deallocate(grid_size)
-      if (allocated(processor_dims)) deallocate(processor_dims)
-      if (allocated(domain_begin)) deallocate(domain_begin)
-      if (allocated(domain_end)) deallocate(domain_end)
-
-   end subroutine block_test_main
-
-   subroutine block_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      stencil_sizes, solver_params)
-      integer, intent(in) :: ndims, rank, world_size
-      integer, dimension(:), intent(in) :: grid_size, processor_dims, stencil_sizes
-      real, dimension(:), intent(in) :: domain_begin, domain_end
-      type(SolverParamsType), intent(in) :: solver_params
-
-      integer, parameter :: num_derivatives = 2
-      integer, dimension(num_derivatives), parameter :: derivatives = [1,2]
-
-      call block_test_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-         num_derivatives, derivatives, stencil_sizes, solver_params)
-
-   end subroutine block_test
-
-   subroutine block_test_test(ndims, rank, world_size, grid_size, processor_dims, domain_begin, domain_end, &
-      num_derivatives, derivatives, stencil_sizes, solver_params)
-      integer, intent(in) :: ndims, rank, world_size
-      integer, dimension(:), intent(in) :: grid_size, processor_dims
-      real, dimension(:), intent(in) :: domain_begin, domain_end
-
-      integer, intent(in) :: num_derivatives
-      integer, dimension(:), intent(in) :: derivatives, stencil_sizes
-      type(SolverParamsType), intent(in) :: solver_params
-
-      integer, dimension(5) :: num_data_elements
-
-      integer, dimension(ndims) ::  bc_begin, bc_end, ghost_begin, ghost_end, stencil_begin, stencil_end
-      integer :: iounit
-      real, dimension(4) :: result_array_with_timings
-
       type(comm_type) :: comm_params
       type(block_type) :: block_params
 
-      logical, dimension(ndims) :: periods
-      logical :: reorder
-
-      reorder = .true.
-      periods = [.false., .true.]
-
-      num_data_elements = 1
-
-      ghost_begin = 0*(stencil_sizes/2)
-      ghost_end = 0*(stencil_sizes/2)
-      stencil_begin = stencil_sizes/2
-      stencil_end = stencil_sizes/2
+      integer :: iounit
 
       call create_cart_comm_type(ndims, processor_dims, periods, reorder, rank, world_size, comm_params)
 
@@ -113,22 +49,22 @@ contains
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
          ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
-      block_params%matrix_ptr = -1!rank
+      block_params%matrix_ptr = rank
 
-      if(ndims == 1) then
-         call write_global_index_to_block_1D(block_params)
-      else if(ndims == 2) then
-         call write_global_index_to_block_2D(block_params)
-      end if
+      ! if(ndims == 1) then
+      !    call write_global_index_to_block_1D(block_params)
+      ! else if(ndims == 2) then
+      !    call write_global_index_to_block_2D(block_params)
+      ! end if
 
       call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
       ! Write out our setup to a file. Just for debugging purposes
       call open_txt_file("output/output_from_", rank, iounit)
 
-      call print_cart_comm_type(comm_params, iounit)
+      !call print_cart_comm_type(comm_params, iounit)
 
-      call print_block_type(ndims, block_params, iounit)
+      call print_block_type(block_params, iounit)
 
       call close_txt_file(iounit)
 
@@ -141,9 +77,9 @@ contains
 
       call deallocate_block_type(block_params)
 
-   end subroutine block_test_test
+   end subroutine block_test_main
 
-   subroutine write_global_index_to_block_1D(block_params)
+   pure subroutine write_global_index_to_block_1D(block_params)
 
       type(block_type), intent(inout) :: block_params
 
@@ -160,7 +96,7 @@ contains
 
    end subroutine write_global_index_to_block_1D
 
-   subroutine write_global_index_to_block_2D(block_params)
+   pure subroutine write_global_index_to_block_2D(block_params)
       type(block_type), intent(inout) :: block_params
 
       integer :: ii, jj

@@ -7,7 +7,7 @@ module FD_module
    private
 
    type FDstencil_type
-      integer :: num_derivatives, num_stencil_elements, combination_of_stencil_sizes, stencil_coefficients_size
+      integer :: ndims, num_derivatives, num_stencil_elements, combination_of_stencil_sizes, stencil_coefficients_size
       integer, dimension(:), allocatable :: derivatives, stencil_sizes
       real, dimension(:), allocatable :: stencil_coefficients, scaled_stencil_coefficients
 
@@ -19,7 +19,8 @@ module FD_module
 
    public :: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil
-   public :: apply_FDstencil, apply_stencil_2D, update_value_from_stencil, update_value_from_stencil_2D
+   public :: apply_FDstencil, apply_FDstencil_2D, update_value_from_stencil, update_value_from_stencil_2D, &
+      set_2D_matrix_coefficients
    public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index
    public :: calculate_scaled_coefficients
 
@@ -36,6 +37,7 @@ contains
       integer :: global_index, start_index, end_index
       integer, dimension(ndims) :: alphas, betas
 
+      FDstencil_type_output%ndims = ndims
       FDstencil_type_output%num_derivatives = num_derivatives
       FDstencil_type_output%num_stencil_elements = product(stencil_sizes)
       FDstencil_type_output%combination_of_stencil_sizes = product(stencil_sizes)
@@ -75,7 +77,7 @@ contains
       integer :: stencil_coefficients_index_start, stencil_coefficients_index_end
       integer, dimension(ndims) :: stencil_sizes, derivative
       integer :: num_stencil_elements
-      real, dimension(product(alphas + 1 + betas)) :: temp_stencil_coefficients
+      real(kind=8), dimension(product(alphas + 1 + betas)) :: temp_stencil_coefficients
 
       stencil_sizes = alphas + 1 + betas
       num_stencil_elements = product(stencil_sizes)
@@ -106,14 +108,18 @@ contains
    end subroutine deallocate_finite_difference_stencil
 
    !> Print the finite difference stencil
-   subroutine print_finite_difference_stencil(ndims, FDstencil_type_input, iounit)
-      integer, intent(in) :: ndims, iounit
+   subroutine print_finite_difference_stencil(FDstencil_type_input, iounit)
       type(FDstencil_type), intent(in) :: FDstencil_type_input
+      integer, intent(in) :: iounit
+
+      integer :: ndims
 
       integer :: combination_of_stencil_sizes, num_stencil_elements, num_derivatives
       integer :: alpha_beta_global_index, alpha_beta_start_index, alpha_beta_end_index
       integer :: derivative_global_index, derivative_start_index, derivative_end_index
-      integer, dimension(ndims) :: current_index, alphas, betas
+      integer, dimension(FDstencil_type_input%ndims) :: current_index, alphas, betas
+
+      ndims = FDstencil_type_input%ndims
 
       combination_of_stencil_sizes = FDstencil_type_input%combination_of_stencil_sizes
       num_stencil_elements = FDstencil_type_input%num_stencil_elements
@@ -162,17 +168,15 @@ contains
 
       integer, dimension(ndims) :: stencil_sizes
 
-      real, dimension(product(alphas + 1 + betas)), intent(out) :: stencil_coefficients
+      real(kind=8), dimension(product(alphas + 1 + betas)), intent(out) :: stencil_coefficients
 
       integer, dimension(ndims) :: index
       integer :: global_index, start_index, end_index, num_equations, num_taylor_elements, num_rhs, info
       integer, dimension(product(alphas + 1 + betas)) :: ipiv
-      real, dimension(product(alphas + 1 + betas)) :: taylor_coefficients
-      real, dimension(product(alphas + 1 + betas)**2) :: coefficient_matrix
+      real(kind=8), dimension(product(alphas + 1 + betas)) :: taylor_coefficients
+      real(kind=8), dimension(product(alphas + 1 + betas)**2) :: coefficient_matrix
 
       stencil_sizes = alphas + 1 + betas
-
-      info = 0
 
       num_equations = product(stencil_sizes)
       num_taylor_elements = num_equations
@@ -196,10 +200,10 @@ contains
 
       end do
 
+      info = 0
       ! Call DGESV to solve the linear system
       call DGESV(num_equations, num_rhs, coefficient_matrix, num_taylor_elements, ipiv, &
          stencil_coefficients, num_taylor_elements, info)
-
       if (info /= 0) then
          print *, "DGESV reported an error: ", info
          stop
@@ -213,12 +217,12 @@ contains
    pure subroutine calculate_taylor_coefficients(ndims, stencil_sizes, dx, taylor_coefficients)
       integer, intent(in) :: ndims
       integer, dimension(ndims), intent(in) :: stencil_sizes
-      real, dimension(ndims), intent(in) :: dx
-      real, dimension(product(stencil_sizes)), intent(out) :: taylor_coefficients
+      real(kind=8), dimension(ndims), intent(in) :: dx
+      real(kind=8), dimension(product(stencil_sizes)), intent(out) :: taylor_coefficients
 
       integer :: global_index
       integer, dimension(ndims) :: current_index
-      real :: numerator(ndims), denominator(ndims)
+      real(kind=8), dimension(ndims) :: numerator, denominator
 
       numerator = 0.0
       denominator = 0.0
@@ -227,8 +231,8 @@ contains
       do global_index = 1, product(stencil_sizes)
          call IDX_XD_INV(ndims, stencil_sizes, global_index, current_index)
 
-         numerator = dx ** real(current_index-1,kind=8)
-         denominator = gamma(real(current_index,kind=8))
+         numerator = dx ** real(current_index-1)
+         denominator = gamma(real(current_index))
          taylor_coefficients(global_index) = product(numerator / denominator)
       end do
 
@@ -266,14 +270,14 @@ contains
    end subroutine apply_FDstencil
 
    !> Apply the finite difference stencil to a 2D-matrix
-   pure subroutine apply_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, result)
+   pure subroutine apply_FDstencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, result)
       real, dimension(:,:), intent(in) :: stencil_2D, matrix_2D
       integer, dimension(:), intent(in) :: indices, alpha, beta
       real, intent(out) :: result
 
       result = sum(stencil_2D * matrix_2D(indices(1)-alpha(1):indices(1)+beta(1), indices(2)-alpha(2):indices(2)+beta(2)))
 
-   end subroutine apply_stencil_2D
+   end subroutine apply_FDstencil_2D
 
    !> Update the value from a stencil
    pure subroutine update_value_from_stencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, &
@@ -309,14 +313,38 @@ contains
 
       real :: center_coefficient_value
 
-      call apply_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, val)
+      call apply_FDstencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, val)
 
-      center_coefficient_value = stencil_2D(alpha(2)+1,alpha(1)+1) ! The order of alpha is reversed due to the stencil being in row-major order...
+      center_coefficient_value = stencil_2D(alpha(1)+1,alpha(2)+1)
 
       val = val - center_coefficient_value * matrix_2D(indices(1), indices(2))
       val = (f_val - val) / (center_coefficient_value+1e-6)
 
    end subroutine update_value_from_stencil_2D
+
+   !> Set a 2D-matrix to the stencil coefficients
+   subroutine set_2D_matrix_coefficients(matrix_extended_dims, stencil_2D, matrix_2D, indices, alpha, beta)
+      integer, dimension(:), intent(in) :: matrix_extended_dims
+      real, dimension(:,:), intent(in) :: stencil_2D
+      real, dimension(:,:), intent(inout) :: matrix_2D
+      integer, dimension(:), intent(in) :: indices, alpha, beta
+
+      integer :: diag, ii, jj, matrix_ii, matrix_jj, matrix_global_index
+
+      ! Calculate the diagonal index in the coefficient matrix corresponds to (jj,ii) in the grid.
+      diag = indices(1) + (indices(2) - 1) * matrix_extended_dims(1)
+
+      do concurrent(jj = 1:size(stencil_2D, 1), ii = 1:size(stencil_2D, 2))
+         matrix_ii = indices(2) - (alpha(2) + 1) + ii
+         matrix_jj = indices(1) - (alpha(1) + 1) + jj
+
+         ! Calculate the corresponding global index.
+         matrix_global_index = matrix_jj + (matrix_ii-1) * matrix_extended_dims(1)
+
+         ! We have an issue here. Need to figure out which elements in the coefficient matrix should be written by the stencil.
+         matrix_2D(diag, matrix_global_index) = stencil_2D(jj, ii) ! Has to be diag then matrix_global_index??
+      end do
+   end subroutine set_2D_matrix_coefficients
 
    !> Determine alpha and beta from a matrix index.
    pure subroutine determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index, alpha, beta)
@@ -379,7 +407,7 @@ contains
       coefficients, alpha, beta, pointer_to_coefficients)
       integer, intent(in) :: ndims, num_derivatives
       integer, dimension(:), intent(in) :: stencil_sizes, start_dims, dims, index
-      real, dimension(:), target, intent(inout) :: coefficients
+      real, contiguous, dimension(:), target, intent(inout) :: coefficients
       integer, dimension(:), intent(out) :: alpha, beta
       real, contiguous, dimension(:), pointer, intent(out) :: pointer_to_coefficients
 

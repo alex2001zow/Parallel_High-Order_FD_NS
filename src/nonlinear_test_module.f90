@@ -162,9 +162,9 @@ contains
 
       call print_cart_comm_type(comm_params, iounit)
 
-      call print_finite_difference_stencil(ndims, FDstencil_params, iounit)
+      call print_finite_difference_stencil(FDstencil_params, iounit)
 
-      call print_block_type(ndims, block_params, iounit)
+      call print_block_type(block_params, iounit)
 
       call close_txt_file(iounit)
 

@@ -4,7 +4,7 @@ module block_module
       sendrecv_data_to_neighbors, waitall_mpi_wrapper
    use comm_module, only: comm_type, get_cart_neighbors, begin_end_neighbor_indices
    use utility_functions_module, only: reshape_real_1D_to_2D, reshape_real_1D_to_3D, reshape_real_1D_to_4D, &
-      IDX_XD, IDX_XD_INV, calculate_dx, sleeper_function
+      IDX_XD, IDX_XD_INV, calculate_dx, sleeper_function, print_real_1D_array, print_real_2D_array, print_real_3D_array
    implicit none
 
    private
@@ -28,7 +28,13 @@ module block_module
       integer, dimension(:), allocatable :: block_begin_c, block_end_c, block_dims
       integer, dimension(:), allocatable :: extended_block_begin_c, extended_block_end_c, extended_block_dims
 
+      ! Arrays for the matrix, f_matrix, and temp_matrix(Jacobi iteration) and the residual_matrix
       real, dimension(:), allocatable :: matrix, f_matrix, temp_matrix, residual_matrix
+
+      ! Direct solver array
+      real, dimension(:), allocatable :: direct_solver_matrix
+      real, contiguous, dimension(:), pointer :: direct_solver_matrix_ptr
+      real, contiguous, dimension(:,:), pointer :: direct_solver_matrix_ptr_2D
 
       ! The pointers to the matrix, f_matrix, and temp_matrix for different dimensions.
       real, contiguous, dimension(:), pointer :: matrix_ptr, f_matrix_ptr, temp_matrix_ptr, residual_matrix_ptr
@@ -77,14 +83,23 @@ contains
          block_output%grid_size, comm%processor_dim, &
          block_output%ghost_begin , block_output%ghost_end, &
          block_output%stencil_begin, block_output%stencil_end, &
-         comm%coords, comm%comm, block_output)
+         comm%periods, comm%coords, comm%comm, block_output)
 
       block_output%global_grid_begin = merge(1, 0, comm%periods) * block_output%stencil_begin + block_output%ghost_begin
       block_output%global_grid_end = -1000!block_output%extended_grid_size - &
       !(merge(1, 0, comm%periods) * block_output%stencil_end + block_output%ghost_end)
 
       allocate(block_output%matrix(block_output%extended_num_elements))
+      allocate(block_output%f_matrix(block_output%extended_num_elements))
       allocate(block_output%residual_matrix(block_output%extended_num_elements))
+
+      allocate(block_output%direct_solver_matrix(block_output%extended_num_elements**2))
+      block_output%direct_solver_matrix = 0
+
+      block_output%matrix = 0.0
+      block_output%f_matrix = 0.0
+      block_output%residual_matrix = 0.0
+
 
       call setup_matrix_pointers(block_output)
 
@@ -93,10 +108,11 @@ contains
    ! Setup the block data layout type using 0-based indexing due to OpenMPI.
    subroutine setup_block_data_layout_type(ndims, elements_per_index, grid_size, processor_dims, &
       ghost_begin, ghost_end, stencil_begin, stencil_end, &
-      coords, comm, block_inout)
+      periods, coords, comm, block_inout)
       integer, intent(in) :: ndims, elements_per_index, comm
       integer, dimension(:), intent(in) :: grid_size, processor_dims
       integer, dimension(:), intent(in) :: ghost_begin, ghost_end, stencil_begin, stencil_end, coords
+      logical, dimension(:), intent(in) :: periods
       type(block_type), target, intent(inout) :: block_inout
 
       type(block_data_layout_type), pointer:: block_data_layout
@@ -132,10 +148,11 @@ contains
       allocate(block_data_layout%send_tag_4(block_data_layout%number_of_existing_neighbors))
       allocate(block_data_layout%recv_tag_4(block_data_layout%number_of_existing_neighbors))
 
-      ! Scale the ghost and stencil offsets by the ghost and stencil sizes
+      ! Scale the ghost by the ghost sizes
       begin_ghost_offset = begin_ghost_offset * ghost_begin
       end_ghost_offset = end_ghost_offset * ghost_end
 
+      ! Scale the stencil by the stencil sizes
       begin_stencil_offset = begin_stencil_offset * stencil_begin
       end_stencil_offset = end_stencil_offset * stencil_end
 
@@ -163,9 +180,11 @@ contains
       extended_block_end_c = extended_block_begin_c + extended_local_size
       extended_block_dims = extended_block_end_c - extended_block_begin_c
 
+      ! Calculate the number of elements and extended number of elements
       block_inout%num_elements = product(block_end_c - block_begin_c) * elements_per_index
       block_inout%extended_num_elements = product(extended_block_end_c - extended_block_begin_c) * elements_per_index
 
+      ! Set the values in the block
       block_inout%begin_ghost_offset = begin_ghost_offset
       block_inout%end_ghost_offset = end_ghost_offset
       block_inout%begin_stencil_offset = begin_stencil_offset
@@ -191,10 +210,13 @@ contains
       block_inout%extended_block_dims = extended_block_dims
 
       ! Define the block data layout
-      call define_block_layout(ndims, elements_per_index, block_inout%extended_grid_size, &
-         ghost_begin, ghost_end, &
-         global_begin_c, global_dims, extended_global_begin_c, extended_global_dims, &
-         block_begin_c, block_dims, extended_block_begin_c, extended_block_dims, &
+      call define_block_layout(ndims, elements_per_index, block_inout%grid_size, &
+         ghost_begin + merge(1, 0, periods) * stencil_begin, &
+         ghost_end + merge(1, 0, periods) * stencil_end, &
+         global_begin_c, global_dims, &
+         extended_global_begin_c, extended_global_dims, &
+         block_begin_c, block_dims, &
+         extended_block_begin_c, extended_block_dims, &
          block_data_layout)
 
       stencil_size = (stencil_begin + stencil_end)/2
@@ -262,6 +284,9 @@ contains
       block_input%temp_matrix_ptr => block_input%temp_matrix
       block_input%residual_matrix_ptr => block_input%residual_matrix
 
+      ! Set the pointers to the direct solver matrix
+      block_input%direct_solver_matrix_ptr => block_input%direct_solver_matrix
+
       ! Reshape the pointers to the matrix, f_matrix, and temp_matrix for 2D, 3D, and 4D matrices
       if(block_input%ndims == 2) then
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%matrix_ptr, &
@@ -272,6 +297,12 @@ contains
             block_input%temp_matrix_ptr_2D)
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
             block_input%residual_matrix_ptr_2D)
+
+         !!! TEST
+         call reshape_real_1D_to_2D([block_input%extended_block_dims(1)*block_input%extended_block_dims(2), &
+            block_input%extended_block_dims(2)*block_input%extended_block_dims(1)], block_input%direct_solver_matrix_ptr, &
+            block_input%direct_solver_matrix_ptr_2D)
+
       else if(block_input%ndims == 3) then
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%matrix_ptr, &
             block_input%matrix_ptr_3D)
@@ -383,16 +414,17 @@ contains
       if(allocated(block_input%temp_matrix)) deallocate(block_input%temp_matrix)
       if(allocated(block_input%residual_matrix)) deallocate(block_input%residual_matrix)
 
+      !!! TEST
+      if(allocated(block_input%direct_solver_matrix)) deallocate(block_input%direct_solver_matrix)
+
       call free_block_layout_type(block_input%data_layout)
 
    end subroutine deallocate_block_type
 
    !> Subroutine to print the block structure.
-   subroutine print_block_type(ndims, block_input, iounit)
-      integer, intent(in) :: ndims, iounit
+   subroutine print_block_type(block_input, iounit)
       type(block_type), intent(in) :: block_input
-
-      integer :: ii, jj, kk, global_index
+      integer, intent(in) :: iounit
 
       ! Newlines for readability
       write(iounit, *)
@@ -459,26 +491,26 @@ contains
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "extended_num_elements: ", block_input%extended_num_elements
 
-      write(iounit, *) "Matrix"
-      select case(ndims)
-       case (1)
-         write(iounit, *) block_input%matrix_ptr
-       case (2)
-         do ii = 1, block_input%extended_block_dims(1)
-            write(iounit, *) block_input%matrix_ptr_2D(ii,:)
-         end do
-       case (3)
-         do ii = 1, block_input%extended_block_dims(1)
-            write(iounit, *)
-            write(iounit, *)
-            write(iounit, *) "ii: ", ii
-            do jj = 1, block_input%extended_block_dims(2)
-               write(iounit, *)
-               write(iounit, *) block_input%matrix_ptr_3D(ii, jj, :)
-            end do
-         end do
+      ! write(iounit, *) "Matrix"
+      ! select case(block_input%ndims)
+      !  case (1)
+      !    call print_real_1D_array(block_input%matrix_ptr, iounit)
+      !  case (2)
+      !    call print_real_2D_array(block_input%matrix_ptr_2D, iounit)
+      !  case (3)
+      !    call print_real_3D_array(block_input%matrix_ptr_3D, iounit)
+      ! end select
 
+      write(iounit, *) "F Matrix"
+      select case(block_input%ndims)
+       case (1)
+         call print_real_1D_array(block_input%f_matrix_ptr, iounit)
+       case (2)
+         call print_real_2D_array(block_input%f_matrix_ptr_2D, iounit)
+       case (3)
+         call print_real_3D_array(block_input%f_matrix_ptr_3D, iounit)
       end select
+      !call print_real_2D_array(block_input%direct_solver_matrix_ptr_2D, iounit)
 
    end subroutine print_block_type
 

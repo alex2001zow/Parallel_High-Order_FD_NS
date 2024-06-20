@@ -7,7 +7,7 @@ module multigrid_module
 
    private
 
-   public :: full_weighing_restriction_2D, nearest_neighbor_prolongation_2D
+   public :: full_weighing_restriction_2D, bilinear_prolongation_2D
 
 contains
 
@@ -17,42 +17,74 @@ contains
       real, dimension(:,:), intent(in) :: fine_residual
       real, dimension(:,:), intent(out) :: coarse_residual
 
-      integer :: i, j
+      real, dimension(3,3), parameter :: full_weighing_restriction_2D_stencil = &
+         reshape([1.0, 2.0, 1.0, &
+         2.0, 4.0, 2.0, &
+         1.0, 2.0, 1.0]/16.0, [3,3])
 
-      ! Make it parallel
-      do i = 1, coarse_extended_dims(1)
-         do j = 1, coarse_extended_dims(2)
-            coarse_residual(i, j) = (4.0 * fine_residual(2*i, 2*j) + &
-               2.0 * (fine_residual(2*i-1, 2*j) + fine_residual(2*i+1, 2*j) + &
-               fine_residual(2*i, 2*j-1) + fine_residual(2*i, 2*j+1)) + &
-               1.0 * (fine_residual(2*i-1, 2*j-1) + fine_residual(2*i+1, 2*j-1) + &
-               fine_residual(2*i-1, 2*j+1) + fine_residual(2*i+1, 2*j+1))) / 16.0
+      integer :: ii, jj
+      integer :: fi, fj
+
+      ! Initialize the coarse solution with zeros if the entire array is not guaranteed to be filled
+      coarse_residual = 0.0
+
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(fine_extended_dims, coarse_extended_dims, fine_residual, coarse_residual) &
+      !$omp private(ii, jj, fi, fj)
+      do ii = 1, coarse_extended_dims(2)
+         do jj = 1, coarse_extended_dims(1)
+            ! Compute corresponding fine grid indices
+            fi = min(2 * ii, fine_extended_dims(2)-1)
+            fj = min(2 * jj, fine_extended_dims(1)-1)
+
+            coarse_residual(jj,ii) = sum(fine_residual(fj-1:fj+1, fi-1:fi+1) * full_weighing_restriction_2D_stencil)
+
          end do
       end do
+
+      !$omp end parallel do
 
    end subroutine full_weighing_restriction_2D
 
-   !> Nearest neighbor prolongation operator for 2D problems
-   subroutine nearest_neighbor_prolongation_2D(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_solution)
-      integer, dimension(:), intent(in) :: coarse_extended_dims, fine_extended_dims
-      real, dimension(:,:), intent(in) :: coarse_solution
+   !> Bilinear prolongation operator for 2D problems
+   subroutine bilinear_prolongation_2D(fine_extended_dims, coarse_extended_dims, fine_solution, coarse_solution)
+      integer, dimension(:), intent(in) :: fine_extended_dims, coarse_extended_dims
       real, dimension(:,:), intent(out) :: fine_solution
+      real, dimension(:,:), intent(in) :: coarse_solution
 
-      integer :: i, j
+      integer :: ii, jj
+      integer :: fi, fj
 
-      ! Initialize the fine solution with zeros
+      ! Initialize the fine solution with zeros if the entire array is not guaranteed to be filled
       fine_solution = 0.0
 
-      ! Perform nearest neighbor prolongation
-      do i = 1, coarse_extended_dims(1)
-         do j = 1, coarse_extended_dims(2)
-            fine_solution(2*i-1, 2*j-1) = coarse_solution(i, j)
-            fine_solution(2*i-1, 2*j) = coarse_solution(i, j)
-            fine_solution(2*i, 2*j-1) = coarse_solution(i, j)
-            fine_solution(2*i, 2*j) = coarse_solution(i, j)
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_solution) &
+      !$omp private(ii, jj, fi, fj)
+      do ii = 1, coarse_extended_dims(2)-1
+         do jj = 1, coarse_extended_dims(1)-1
+            ! Compute corresponding fine grid indices
+            fi = min(2 * ii, fine_extended_dims(2)-1)
+            fj = min(2 * jj, fine_extended_dims(1)-1)
+
+            ! Directly assign values to corresponding points
+            fine_solution(fj, fi) = coarse_solution(jj, ii)
+
+            ! Interpolate horizontally
+            fine_solution(fj, fi+1) = 0.5 * (coarse_solution(jj, ii) + coarse_solution(jj, ii+1))
+
+            ! Interpolate vertically
+            fine_solution(fj+1, fi) = 0.5 * (coarse_solution(jj, ii) + coarse_solution(jj+1, ii))
+
+            ! Interpolate diagonally
+            fine_solution(fj+1, fi+1) = 0.25 * (coarse_solution(jj, ii) + coarse_solution(jj, ii+1) + &
+               coarse_solution(jj+1, ii) + coarse_solution(jj+1, ii+1))
+
          end do
       end do
 
-   end subroutine nearest_neighbor_prolongation_2D
+      !$omp end parallel do
+
+   end subroutine bilinear_prolongation_2D
 
 end module multigrid_module

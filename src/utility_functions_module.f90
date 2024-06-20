@@ -6,7 +6,7 @@ module utility_functions_module
    public :: reshape_real_1D_to_2D, reshape_real_1D_to_3D, reshape_real_1D_to_4D, reshape_real_1D_to_5D, &
       reshape_real_1D_to_6D, reshape_real_1D_to_7D
    public :: IDX_XD, IDX_XD_INV
-   public :: print_real_array, print_integer_array
+   public :: print_real_array, print_integer_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
    public :: calculate_dx, swap_pointers
    public :: sleeper_function
@@ -81,11 +81,11 @@ contains
 
       integer :: d, stride
 
-      global_index = indices(ndims) - 1
+      global_index = indices(1) - 1
       stride = 1
 
-      do d = ndims-1,1,-1
-         stride = stride * dims(d + 1)
+      do d = 2, ndims
+         stride = stride * dims(d - 1)
          global_index = global_index + (indices(d) - 1) * stride
       end do
 
@@ -104,21 +104,17 @@ contains
       ! Adjust index for 1-based indexing of Fortran
       remaining_index = global_index - 1
 
-      ! Start with the product of all dimensions except the last one
-      stride = product(dims(2:ndims))
-      !stride = 1
-      !do d = 2, ndims
-      !   stride = stride * dims(d)
-      !end do
+      ! Start with the product of all dimensions except the first one
+      stride = product(dims(1:ndims-1))
 
-      do d = 1, ndims-1
+      do d = ndims, 2, -1
          indices(d) = (remaining_index / stride) + 1
          remaining_index = mod(remaining_index, stride)
-         stride = stride / dims(d+1)
+         stride = stride / dims(d - 1)
       end do
 
-      ! Handle the last dimension separately
-      indices(ndims) = remaining_index + 1
+      ! Handle the first dimension separately
+      indices(1) = remaining_index + 1
 
    end subroutine IDX_XD_INV
 
@@ -216,6 +212,56 @@ contains
 
    end subroutine print_integer_array
 
+   !> Routine to print a 1D array of type real
+   subroutine print_real_1D_array(array, iounit)
+      real, dimension(:), intent(in) :: array
+      integer, intent(in) :: iounit
+
+      integer :: ii
+
+      do ii = 1, size(array)
+         write(iounit, "(F5.1)", advance="no") array(ii)
+      end do
+
+   end subroutine print_real_1D_array
+
+   !> Routine to print a 2D array of type real
+   subroutine print_real_2D_array(array, iounit)
+      real, dimension(:,:), intent(in) :: array
+      integer, intent(in) :: iounit
+
+      integer :: ii, jj
+
+      do ii = 1, size(array, 2)
+         write(iounit, *)
+         do jj = 1, size(array, 1)
+            write(iounit,"(F10.2)", advance="no") array(jj, ii)
+         end do
+      end do
+
+   end subroutine print_real_2D_array
+
+   !> Routine to print a 3D array of type real
+   subroutine print_real_3D_array(array, iounit)
+      real, dimension(:,:,:), intent(in) :: array
+      integer, intent(in) :: iounit
+
+      integer :: ii, jj, kk
+
+      do ii = 1, size(array, 3)
+         write(iounit, *)
+         write(iounit, *)
+         write(iounit, *) "ii: ", ii
+         do jj = 1, size(array, 2)
+            write(iounit, *)
+            do kk = 1, size(array, 1)
+               write(iounit,"(F5.1)", advance="no") array(kk, jj, ii)
+            end do
+         end do
+      end do
+
+   end subroutine print_real_3D_array
+
    !> Routine to open a file for writing
    subroutine open_txt_file(filename, rank, iounit)
       character(len=*), intent(in) :: filename
@@ -280,7 +326,7 @@ contains
       integer, dimension(:), intent(in) :: grid_size_with_ghosts
       real, dimension(:), intent(out) :: dx
 
-      dx = (domain_end - domain_begin) / (grid_size_with_ghosts - 1)
+      dx = abs((domain_end - domain_begin) / (grid_size_with_ghosts - 1))
    end subroutine calculate_dx
 
    !> Subroutine to swap two pointers

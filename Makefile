@@ -22,8 +22,11 @@ RELEASEFLAGS = -O3 -march=native -flto -funroll-loops
 VERBOSEFLAGS = -fopt-info-vec -fopt-info-loop -fopt-info-inline
 #VERBOSEFLAGS = -fopt-info-all
 
-# OpenACC flags
+# OpenMP flags
 OPENMPFLAGS = -fopenmp
+
+# ThreadSanitizer flag
+SANITIZERFLAGS = -fsanitize=thread
 
 # Other flags
 OTHERFLAGS = -c
@@ -32,13 +35,13 @@ IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Linker flags for linking
-LDFLAGS = -llapack -lblas -lm $(OPENMPFLAGS)
+LDFLAGS = -lm -lopenblas -lscalapack-openmpi $(OPENMPFLAGS) #$(SANITIZERFLAGS)
 
 # Executable name
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
 
 # Files to compile
-FILES = utility_functions_module.f90 constants_module.f90 mpi_wrapper_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 FD_module.f90 multigrid_module.f90 solver_module.f90 FD_test_module.f90 block_test_module.f90 poisson_module.f90 nonlinear_test_module.f90 old_navier_stokes_module.f90 TravelingWave_Poisson_2D.f90 main.f90
+FILES = utility_functions_module.f90 constants_module.f90 mpi_wrapper_module.f90 functions_module.f90 comm_module.f90 block_module.f90 initialization_module.f90 FD_module.f90 multigrid_module.f90 solver_module.f90 FD_test_module.f90 block_test_module.f90 poisson_module.f90 nonlinear_test_module.f90 old_navier_stokes_module.f90 TravelingWave_Poisson_2D.f90 scalapack_module.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))
@@ -52,10 +55,10 @@ default:
 	@echo "To compile the program type make debug|release"
 
 # Combined compiler flags for compilation
-release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS) $(VERBOSEFLAGS)
+release: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(RELEASEFLAGS) $(EFLAGS) $(IFLAGS) $(OPENMPFLAGS) $(MFLAGS) $(VERBOSEFLAGS) #$(SANITIZERFLAGS)
 release: $(EXEC)
 
-debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS) $(VERBOSEFLAGS)
+debug: CFLAGS = $(COMPILERSTANDARD) $(OTHERFLAGS) $(DEBUGFLAGS) $(EFLAGS) $(IFLAGS) $(MFLAGS) $(VERBOSEFLAGS) #$(SANITIZERFLAGS)
 debug: $(EXEC)
 
 $(EXEC): $(OBJS) | $(EXEC_DIR)
