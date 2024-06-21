@@ -32,13 +32,13 @@ module Poisson_module
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [1,1]
-   integer, dimension(ndims), parameter :: stencil_sizes = 9
+   integer, dimension(ndims), parameter :: stencil_sizes = 3
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    !> Solver parameters
-   real, parameter :: tol = 1e-9, div_tol = 1e-1, omega = 0.8
-   integer, parameter :: max_iter = 4000, multigrid_max_level = 2
+   real, parameter :: tol = 1e-36, div_tol = 1e-1, omega = 1.0
+   integer, parameter :: max_iter = 100, multigrid_max_level = 5
    type(SolverParamsType) :: solver_params
 
    public :: Poisson_main
@@ -78,9 +78,9 @@ contains
       result_array_with_timings(1) = MPI_WTIME()
 
       ! Call the multigrid solver
-      !call v_cycle(solver_params, comm_params, block_params, FDstencil_params, result, multigrid_max_level, 1)
+      call w_cycle(solver_params, comm_params, block_params, FDstencil_params, result, multigrid_max_level, 1)
 
-      call direct_solver_test(block_params, FDstencil_params)
+      !call direct_solver_test(block_params, FDstencil_params)
 
       result_array_with_timings(2) = MPI_WTIME()
 
@@ -124,7 +124,7 @@ contains
 
    end subroutine Poisson_main
 
-   recursive subroutine v_cycle(solver, comm, block_fine, FDstencil, result, max_level, level)
+   recursive subroutine w_cycle(solver, comm, block_fine, FDstencil, result, max_level, level)
       type(SolverParamsType), intent(in) :: solver
       type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: block_fine
@@ -134,7 +134,7 @@ contains
 
       type(block_type) :: block_coarse
 
-      write(*,*) "Multigrid level: ", level
+      write(0,*) "Multigrid level: ", level
 
       ! Pre-smoothing
       call GS_Method(comm, block_fine, FDstencil, solver, result)
@@ -155,9 +155,34 @@ contains
 
          ! Make sure that the blocks have other blocks data
          call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%matrix_ptr)
+         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%f_matrix_ptr) ! Not sure if this is needed
 
          ! We cycle since we are not at the max level
-         call v_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+
+         ! Prolongate the solution to the finer grid
+         call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%matrix_ptr_2D)
+
+         ! Error correction
+         block_fine%matrix_ptr_2D = block_fine%matrix_ptr_2D + block_fine%residual_matrix_ptr_2D
+
+         ! Second-smoothing
+         call GS_Method(comm, block_fine, FDstencil, solver, result)
+
+         ! Calculate residual again
+         call calculate_residual(block_fine, FDstencil)
+
+         ! Restrict the residual to the coarser grid again
+         call full_weighing_restriction_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
+
+         ! Make sure that the blocks have other blocks data
+         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%matrix_ptr)
+         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%f_matrix_ptr) ! Not sure if this is needed
+
+         ! Second cycle
+         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
 
          ! Prolongate the solution to the finer grid
          call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
@@ -174,7 +199,7 @@ contains
 
       end if
 
-   end subroutine v_cycle
+   end subroutine w_cycle
 
    ! Calculate the residual of the pressure poisson equation
    subroutine calculate_residual(block_params, FDstencil)
@@ -278,7 +303,6 @@ contains
          end if
 
          it = it + 1
-         !converged = 0
 
       end do
 
@@ -459,8 +483,8 @@ contains
       x = point(1)
       y = point(2)
 
-      !func_val = product(sin(pi*point))
-      func_val = sin(pi*x)*sin(2.0*pi*y) + x*sin(pi*y)
+      func_val = product(sin(pi*point))
+      !func_val = sin(pi*x)*sin(2.0*pi*y) + x*sin(pi*y)
 
    end subroutine u_analytical_poisson
 
@@ -474,8 +498,8 @@ contains
       x = point(1)
       y = point(2)
 
-      !func_val = -ndims*pi*pi*product(sin(pi*point))
-      func_val = -pi*pi*(x + 10.0*sin(pi*x)*cos(pi*y))*sin(pi*y)
+      func_val = -ndims*pi*pi*product(sin(pi*point))
+      !func_val = -pi*pi*(x + 10.0*sin(pi*x)*cos(pi*y))*sin(pi*y)
 
    end subroutine f_analytical_poisson
 

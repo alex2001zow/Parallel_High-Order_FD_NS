@@ -491,16 +491,18 @@ contains
       write(iounit, *) "num_elements: ", block_input%num_elements
       write(iounit, *) "extended_num_elements: ", block_input%extended_num_elements
 
-      ! write(iounit, *) "Matrix"
-      ! select case(block_input%ndims)
-      !  case (1)
-      !    call print_real_1D_array(block_input%matrix_ptr, iounit)
-      !  case (2)
-      !    call print_real_2D_array(block_input%matrix_ptr_2D, iounit)
-      !  case (3)
-      !    call print_real_3D_array(block_input%matrix_ptr_3D, iounit)
-      ! end select
+      write(iounit, *)
+      write(iounit, *) "Matrix"
+      select case(block_input%ndims)
+       case (1)
+         call print_real_1D_array(block_input%matrix_ptr, iounit)
+       case (2)
+         call print_real_2D_array(block_input%matrix_ptr_2D, iounit)
+       case (3)
+         call print_real_3D_array(block_input%matrix_ptr_3D, iounit)
+      end select
 
+      write(iounit, *)
       write(iounit, *) "F Matrix"
       select case(block_input%ndims)
        case (1)
@@ -509,6 +511,17 @@ contains
          call print_real_2D_array(block_input%f_matrix_ptr_2D, iounit)
        case (3)
          call print_real_3D_array(block_input%f_matrix_ptr_3D, iounit)
+      end select
+
+      write(iounit, *)
+      write(iounit, *) "Residual Matrix"
+      select case(block_input%ndims)
+       case (1)
+         call print_real_1D_array(block_input%residual_matrix_ptr, iounit)
+       case (2)
+         call print_real_2D_array(block_input%residual_matrix_ptr_2D, iounit)
+       case (3)
+         call print_real_3D_array(block_input%residual_matrix_ptr_3D, iounit)
       end select
       !call print_real_2D_array(block_input%direct_solver_matrix_ptr_2D, iounit)
 

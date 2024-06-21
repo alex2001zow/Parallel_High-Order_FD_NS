@@ -10,7 +10,7 @@ module constants_module
    integer, parameter :: neighbor_current_rank = -10 ! Replace with MPI_PROC_NULL
    integer, parameter :: neighbor_non_existant_rank = -1 ! Fix spelling...
 
-   real, parameter :: pi = 3.1415926535897932384626433832795
+   real, parameter :: pi = 4.0*atan(1.0) ! Ensures that pi is defined to machine precision
 
    public :: MASTER_RANK, neighbor_current_rank, neighbor_non_existant_rank
    public :: pi

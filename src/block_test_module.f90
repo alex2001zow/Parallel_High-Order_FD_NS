@@ -22,7 +22,7 @@ module block_test_module
    integer, parameter :: ndims = 2
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = 8, processor_dims = [2,2]
+   integer, dimension(ndims), parameter :: grid_size = 8, processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
@@ -49,13 +49,13 @@ contains
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
          ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
 
-      block_params%matrix_ptr = rank
+      block_params%matrix_ptr = -1!rank
 
-      ! if(ndims == 1) then
-      !    call write_global_index_to_block_1D(block_params)
-      ! else if(ndims == 2) then
-      !    call write_global_index_to_block_2D(block_params)
-      ! end if
+      if(ndims == 1) then
+         call write_global_index_to_block_1D(block_params)
+      else if(ndims == 2) then
+         call write_global_index_to_block_2D(block_params)
+      end if
 
       call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
@@ -69,7 +69,12 @@ contains
       call close_txt_file(iounit)
 
       ! Write out system solution to a file
-      call write_block_data_to_file(block_params%data_layout, "output/system_solution.dat", comm_params%comm, block_params%matrix)
+      call write_block_data_to_file(block_params%data_layout, "output/system_solution.dat", &
+         comm_params%comm, block_params%matrix)
+      call write_block_data_to_file(block_params%data_layout, "output/system_rhs.dat", &
+         comm_params%comm, block_params%f_matrix)
+      call write_block_data_to_file(block_params%data_layout, "output/system_residual.dat", &
+         comm_params%comm, block_params%residual_matrix)
 
       ! Deallocate data
 

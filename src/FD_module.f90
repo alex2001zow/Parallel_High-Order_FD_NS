@@ -21,7 +21,7 @@ module FD_module
       print_finite_difference_stencil
    public :: apply_FDstencil, apply_FDstencil_2D, update_value_from_stencil, update_value_from_stencil_2D, &
       set_2D_matrix_coefficients
-   public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index
+   public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index, get_coefficients_wrapper
    public :: calculate_scaled_coefficients
 
 contains
@@ -318,12 +318,12 @@ contains
       center_coefficient_value = stencil_2D(alpha(1)+1,alpha(2)+1)
 
       val = val - center_coefficient_value * matrix_2D(indices(1), indices(2))
-      val = (f_val - val) / (center_coefficient_value+1e-6)
+      val = (f_val - val) / (center_coefficient_value + 1e-6)
 
    end subroutine update_value_from_stencil_2D
 
    !> Set a 2D-matrix to the stencil coefficients
-   subroutine set_2D_matrix_coefficients(matrix_extended_dims, stencil_2D, matrix_2D, indices, alpha, beta)
+   pure subroutine set_2D_matrix_coefficients(matrix_extended_dims, stencil_2D, matrix_2D, indices, alpha, beta)
       integer, dimension(:), intent(in) :: matrix_extended_dims
       real, dimension(:,:), intent(in) :: stencil_2D
       real, dimension(:,:), intent(inout) :: matrix_2D
@@ -403,10 +403,11 @@ contains
 
    end subroutine global_2_start_end
 
-   pure subroutine get_FD_coefficients_from_index(ndims, num_derivatives, stencil_sizes, start_dims, dims, index, &
+   !> Get the finite difference coefficients from the index
+   pure subroutine get_FD_coefficients_from_index(ndims, num_derivatives, stencil_sizes, matrix_begin, matrix_end, indices, &
       coefficients, alpha, beta, pointer_to_coefficients)
       integer, intent(in) :: ndims, num_derivatives
-      integer, dimension(:), intent(in) :: stencil_sizes, start_dims, dims, index
+      integer, dimension(:), intent(in) :: stencil_sizes, matrix_begin, matrix_end, indices
       real, contiguous, dimension(:), target, intent(inout) :: coefficients
       integer, dimension(:), intent(out) :: alpha, beta
       real, contiguous, dimension(:), pointer, intent(out) :: pointer_to_coefficients
@@ -414,7 +415,7 @@ contains
       integer :: global_index, start_index, end_index
 
       ! Determine the alpha for the current index
-      call determine_alpha(ndims, stencil_sizes, start_dims, dims, index, alpha, beta)
+      call determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, indices, alpha, beta)
 
       ! Find the coefficients from alpha.
       call alpha_2_global(ndims, stencil_sizes, alpha, global_index)
@@ -423,6 +424,19 @@ contains
       pointer_to_coefficients => coefficients(start_index:end_index)
 
    end subroutine get_FD_coefficients_from_index
+
+   !> Subroutine to get the finite difference coefficients from the FDstencil_type and the index
+   pure subroutine get_coefficients_wrapper(FDstencil, matrix_begin, matrix_end, indices, alpha, beta, pointer_to_coefficients)
+      type(FDstencil_type), intent(inout) :: FDstencil
+      integer, dimension(:), intent(in) :: matrix_begin, matrix_end, indices
+      integer, dimension(:), intent(out) :: alpha, beta
+      real, contiguous, dimension(:), pointer, intent(out) :: pointer_to_coefficients
+
+      call get_FD_coefficients_from_index(FDstencil%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
+         matrix_begin, matrix_end, indices, &
+         FDstencil%scaled_stencil_coefficients, alpha, beta, pointer_to_coefficients)
+
+   end subroutine get_coefficients_wrapper
 
    !> Routine to scale the finite difference coefficients depending on the grid spacing(dx)
    pure subroutine calculate_scaled_coefficients(ndims, dx, FDstencil_type_input)

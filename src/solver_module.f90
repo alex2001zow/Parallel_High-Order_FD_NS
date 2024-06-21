@@ -252,7 +252,7 @@ contains
       real, intent(in) :: x_old, x_new
       real, intent(out) :: relative_difference
 
-      relative_difference = abs(x_new - x_old) / (x_old + 1e-6)
+      relative_difference = abs(x_new - x_old) / ((abs(x_new) + abs(x_old))/2.0 + 1e-6)
 
    end subroutine calculate_relative_difference
 

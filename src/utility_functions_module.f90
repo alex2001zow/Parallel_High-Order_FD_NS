@@ -235,7 +235,7 @@ contains
       do ii = 1, size(array, 2)
          write(iounit, *)
          do jj = 1, size(array, 1)
-            write(iounit,"(F10.2)", advance="no") array(jj, ii)
+            write(iounit,"(F10.3)", advance="no") array(jj, ii)
          end do
       end do
 

@@ -25,7 +25,7 @@ contains
       integer :: ii, jj
       integer :: fi, fj
 
-      ! Initialize the coarse solution with zeros if the entire array is not guaranteed to be filled
+      ! Initialize the coarse solution with zeros if the entire array is not guaranteed to be filled. Maybe parallelize this?
       coarse_residual = 0.0
 
       !$omp parallel do collapse(2) default(none) &
@@ -55,7 +55,7 @@ contains
       integer :: ii, jj
       integer :: fi, fj
 
-      ! Initialize the fine solution with zeros if the entire array is not guaranteed to be filled
+      ! Initialize the fine solution with zeros if the entire array is not guaranteed to be filled. Maybe parallelize this?
       fine_solution = 0.0
 
       !$omp parallel do collapse(2) default(none) &
