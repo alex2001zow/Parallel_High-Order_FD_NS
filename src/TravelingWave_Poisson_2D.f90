@@ -26,7 +26,7 @@ module TravelingWave_Poisson_2D_module
    real, parameter :: g = 9.81, mu = 1.3059*(1e-6), rho = 1000.0, nu = mu/rho
 
    !> Domain parameters
-   real, parameter :: Ls = 1.0, Lx = 1.0
+   real, parameter :: Ls = 1.0, Lx = 31.0
 
    !> Wave parameters
    real, parameter :: start_t = 0.0
@@ -37,14 +37,14 @@ module TravelingWave_Poisson_2D_module
    integer, dimension(ndims), parameter :: grid_size = [64,64], processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false., .true.]
    logical, parameter :: reorder = .true.
-   real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [Ls,Lx]
+   real, dimension(ndims), parameter :: domain_begin = [0.0,0.0], domain_end = [hd,Lx]
    integer, dimension(ndims), parameter :: stencil_sizes = 3
    integer, dimension(ndims), parameter :: uv_ghost_begin = [0,0], uv_ghost_end = [0,0]
    integer, dimension(ndims), parameter :: p_ghost_begin = [1,0], p_ghost_end = [1,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    !> Solver parameters
-   real, parameter :: tol = 1e-16, div_tol = 1e-1, omega = 1.0
+   real, parameter :: tol = 1e-36, div_tol = 1e-1, omega = 1.0
    integer, parameter :: max_iter = 10000*(1.0 + 1.0 - omega), multigrid_max_level = 1
 
    public :: TravelingWave_Poisson_2D_main
@@ -243,7 +243,7 @@ contains
             dss => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
             dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-            combined_stencils = dxx + dss
+            combined_stencils = dxx + dss/(hd*hd)
 
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
             call apply_FDstencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, laplacian_p)
@@ -295,7 +295,7 @@ contains
             call apply_FDstencil_2D(dx_2D, u_block%matrix_ptr_2D, uv_local_indices, alpha, beta, u_x)
             call apply_FDstencil_2D(ds_2D, v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, v_s)
 
-            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (u_x + v_s)
+            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (u_x - v_s/hd)
 
          end do
       end do
@@ -338,6 +338,7 @@ contains
          end if
 
          it = it + 1
+         !converged = 0
 
       end do
 
@@ -381,7 +382,7 @@ contains
                dss => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
                dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-               combined_stencils = dxx + dss
+               combined_stencils = dxx + dss/(hd*hd)
 
                call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
 
@@ -471,7 +472,7 @@ contains
 
       real :: z
 
-      z = sigma*h_small - h_small
+      z = sigma!*h_small - h_small
 
       ! Compute analytical solution at level z
       uu    =  k*H*c/2*cosh(k*(z + h_small))/sinh(k * h_small)*cos(w*t-k*x)

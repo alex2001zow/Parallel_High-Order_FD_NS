@@ -93,8 +93,8 @@ contains
       allocate(block_output%f_matrix(block_output%extended_num_elements))
       allocate(block_output%residual_matrix(block_output%extended_num_elements))
 
-      allocate(block_output%direct_solver_matrix(block_output%extended_num_elements**2))
-      block_output%direct_solver_matrix = 0
+      !allocate(block_output%direct_solver_matrix(block_output%extended_num_elements**2))
+      !block_output%direct_solver_matrix = 0
 
       block_output%matrix = 0.0
       block_output%f_matrix = 0.0
