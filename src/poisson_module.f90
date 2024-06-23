@@ -6,8 +6,9 @@ module Poisson_module
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, &
       print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
-      print_finite_difference_stencil, apply_FDstencil, update_value_from_stencil, get_FD_coefficients_from_index, &
-      calculate_scaled_coefficients, apply_FDstencil_2D, update_value_from_stencil_2D, set_2D_matrix_coefficients
+      print_finite_difference_stencil, apply_FDstencil, update_value_from_stencil, &
+      calculate_scaled_coefficients, apply_FDstencil_2D, update_value_from_stencil_2D, set_2D_matrix_coefficients, &
+      get_coefficients_wrapper
    use block_module, only: block_type, create_block_type, deallocate_block_type, sendrecv_data_neighbors, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers, calculate_point
 
@@ -28,7 +29,7 @@ module Poisson_module
    integer, dimension(ndims*num_derivatives), parameter :: derivatives = [2,0,0,2] ! dxx, dyy
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = [128,128], processor_dims = [1,1]
+   integer, dimension(ndims), parameter :: grid_size = [64,64], processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [1,1]
@@ -38,7 +39,7 @@ module Poisson_module
 
    !> Solver parameters
    real, parameter :: tol = 1e-36, div_tol = 1e-1, omega = 1.0
-   integer, parameter :: max_iter = 100, multigrid_max_level = 5
+   integer, parameter :: max_iter = 30000*(1.0 + 1.0 - omega), multigrid_max_level = 2
    type(SolverParamsType) :: solver_params
 
    public :: Poisson_main
@@ -68,9 +69,11 @@ contains
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
       call calculate_rhs_2D(block_params)
-      call write_dirichlet_bc_2D(block_params)
-      call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
-      call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%f_matrix_ptr)
+      call write_dirichlet_bc_2D(comm_params, block_params)
+
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%f_matrix_ptr)
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%residual_matrix_ptr)
 
       !call sleeper_function(1)
 
@@ -81,6 +84,8 @@ contains
       call w_cycle(solver_params, comm_params, block_params, FDstencil_params, result, multigrid_max_level, 1)
 
       !call direct_solver_test(block_params, FDstencil_params)
+
+      call calculate_residual(comm_params, block_params, FDstencil_params)
 
       result_array_with_timings(2) = MPI_WTIME()
 
@@ -94,6 +99,10 @@ contains
          call print_resultType(result)
          write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
       end if
+
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%f_matrix_ptr)
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%residual_matrix_ptr)
 
       ! Write out our setup to a file. Just for debugging purposes
       call open_txt_file("output/output_from_", rank, iounit)
@@ -147,15 +156,11 @@ contains
             ghost_begin, ghost_end, stencil_begin, stencil_end, block_coarse)
 
          ! Compute residual errors
-         call calculate_residual(block_fine, FDstencil)
+         call calculate_residual(comm, block_fine, FDstencil)
 
          ! Restrict the residual to the coarser grid
          call full_weighing_restriction_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
             block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
-
-         ! Make sure that the blocks have other blocks data
-         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%matrix_ptr)
-         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%f_matrix_ptr) ! Not sure if this is needed
 
          ! We cycle since we are not at the max level
          call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
@@ -171,15 +176,11 @@ contains
          call GS_Method(comm, block_fine, FDstencil, solver, result)
 
          ! Calculate residual again
-         call calculate_residual(block_fine, FDstencil)
+         call calculate_residual(comm, block_fine, FDstencil)
 
          ! Restrict the residual to the coarser grid again
          call full_weighing_restriction_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
             block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
-
-         ! Make sure that the blocks have other blocks data
-         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%matrix_ptr)
-         call sendrecv_data_neighbors(comm%comm, block_coarse, block_coarse%f_matrix_ptr) ! Not sure if this is needed
 
          ! Second cycle
          call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
@@ -202,7 +203,8 @@ contains
    end subroutine w_cycle
 
    ! Calculate the residual of the pressure poisson equation
-   subroutine calculate_residual(block_params, FDstencil)
+   subroutine calculate_residual(comm, block_params, FDstencil)
+      type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: block_params
       type(FDstencil_type), intent(inout) :: FDstencil
 
@@ -215,13 +217,15 @@ contains
 
       call calculate_scaled_coefficients(block_params%ndims, block_params%extended_grid_dx, FDstencil)
 
-      do ii = block_params%block_begin_c(2)+1, block_params%block_end_c(2)
-         do jj = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
+      !call sendrecv_data_neighbors(comm%comm, block_params, block_params%matrix_ptr)
+      !call sendrecv_data_neighbors(comm%comm, block_params, block_params%f_matrix_ptr)
+
+      do ii = block_params%block_begin_c(2)+2, block_params%block_end_c(2)-1
+         do jj = block_params%block_begin_c(1)+2, block_params%block_end_c(1)-1
             p_local_indices = [jj,ii]
 
-            call get_FD_coefficients_from_index(block_params%ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-               [1,1], block_params%extended_block_dims, p_local_indices, &
-               FDstencil%scaled_stencil_coefficients, alpha, beta, coefficients)
+            call get_coefficients_wrapper(FDstencil, block_params%block_begin_c+1, block_params%block_end_c, p_local_indices, &
+               alpha, beta, coefficients)
 
             dxx => coefficients(1:FDstencil%num_stencil_elements)
             dyy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
@@ -237,9 +241,12 @@ contains
          end do
       end do
 
+      !call sendrecv_data_neighbors(comm%comm, block_params, block_params%residual_matrix_ptr)
+
    end subroutine calculate_residual
 
-   subroutine write_dirichlet_bc_2D(block_params)
+   subroutine write_dirichlet_bc_2D(comm_params, block_params)
+      type(comm_type), intent(in) :: comm_params
       type(block_type), intent(inout) :: block_params
 
       integer :: ii, jj
@@ -247,8 +254,8 @@ contains
       real, dimension(ndims) :: point
       real :: u_val
 
-      do ii = block_params%block_begin_c(2)+1, block_params%block_end_c(2)
-         do jj = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
+      do ii = block_params%extended_block_begin_c(2)+1, block_params%extended_block_end_c(2)
+         do jj = block_params%extended_block_begin_c(1)+1, block_params%extended_block_end_c(1)
             local_indices = [jj,ii]
             global_indices = block_params%extended_global_begin_c + local_indices
 
@@ -266,6 +273,8 @@ contains
          end do
       end do
 
+      !call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
+
    end subroutine write_dirichlet_bc_2D
 
    subroutine GS_Method(comm_params, block_params, FDstencil_params, solver_params, result)
@@ -281,8 +290,7 @@ contains
 
       call calculate_scaled_coefficients(block_params%ndims, block_params%extended_grid_dx, FDstencil_params)
 
-      call write_dirichlet_bc_2D(block_params)
-      call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
+      call write_dirichlet_bc_2D(comm_params, block_params)
 
       norm_array = [1e3,1e6,1e9,1e12]
 
@@ -291,8 +299,7 @@ contains
       do while(converged /= 1 .and. it < solver_params%max_iter)
          call GS_iteration_2D(block_params, FDstencil_params, norm_array(1))
 
-         call write_dirichlet_bc_2D(block_params)
-         call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
+         call write_dirichlet_bc_2D(comm_params, block_params)
 
          call check_convergence(comm_params%comm, solver_params%tol, solver_params%divergence_tol, &
             1.0/product(block_params%extended_grid_size), norm_array, converged)
@@ -303,6 +310,7 @@ contains
          end if
 
          it = it + 1
+         converged = 0
 
       end do
 
@@ -331,9 +339,8 @@ contains
             old_val = block_params%matrix_ptr_2D(jj,ii)
             f_val = block_params%f_matrix_ptr_2D(jj,ii)
 
-            call get_FD_coefficients_from_index(ndims, FDstencil%num_derivatives, FDstencil%stencil_sizes, &
-               [1,1], block_params%extended_block_dims, local_indices, &
-               FDstencil%scaled_stencil_coefficients, alpha, beta, coefficients)
+            call get_coefficients_wrapper(FDstencil, [1,1], block_params%extended_block_dims, local_indices, &
+               alpha, beta, coefficients)
 
             dxx => coefficients(1:FDstencil%num_stencil_elements)
             dyy => coefficients(FDstencil%num_stencil_elements + 1:2 * FDstencil%num_stencil_elements)
@@ -364,8 +371,8 @@ contains
       real, dimension(ndims) :: point
       real :: f_val
 
-      do ii = block_params%block_begin_c(2)+1, block_params%block_end_c(2)
-         do jj = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
+      do ii = block_params%extended_block_begin_c(2)+1, block_params%extended_block_end_c(2)
+         do jj = block_params%extended_block_begin_c(1)+1, block_params%extended_block_end_c(1)
             local_indices = [jj,ii]
             global_indices = block_params%extended_global_begin_c + local_indices
 
@@ -401,9 +408,8 @@ contains
          do jj = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
             local_indices = [jj,ii]
 
-            call get_FD_coefficients_from_index(block_params%ndims, FDstencil_params%num_derivatives, &
-               FDstencil_params%stencil_sizes, [1,1], block_params%extended_block_dims, local_indices, &
-               FDstencil_params%scaled_stencil_coefficients, alpha, beta, coefficients)
+            call get_coefficients_wrapper(FDstencil_params, [1,1], block_params%extended_block_dims, local_indices, &
+               alpha, beta, coefficients)
 
             dxx => coefficients(1:FDstencil_params%num_stencil_elements)
             dyy => coefficients(FDstencil_params%num_stencil_elements + 1:2 * FDstencil_params%num_stencil_elements)
@@ -483,8 +489,8 @@ contains
       x = point(1)
       y = point(2)
 
-      func_val = product(sin(pi*point))
-      !func_val = sin(pi*x)*sin(2.0*pi*y) + x*sin(pi*y)
+      !func_val = product(sin(pi*point))
+      func_val = sin(pi*x)*sin(2.0*pi*y) + x*sin(pi*y)
 
    end subroutine u_analytical_poisson
 
@@ -498,8 +504,8 @@ contains
       x = point(1)
       y = point(2)
 
-      func_val = -ndims*pi*pi*product(sin(pi*point))
-      !func_val = -pi*pi*(x + 10.0*sin(pi*x)*cos(pi*y))*sin(pi*y)
+      !func_val = -ndims*pi*pi*product(sin(pi*point))
+      func_val = -pi*pi*(x + 10.0*sin(pi*x)*cos(pi*y))*sin(pi*y)
 
    end subroutine f_analytical_poisson
 

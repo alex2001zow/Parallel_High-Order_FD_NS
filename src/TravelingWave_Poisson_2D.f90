@@ -34,7 +34,7 @@ module TravelingWave_Poisson_2D_module
       Twave = lwave/cwave, wwave=2.0*pi/Twave, Hwave = 0.02
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = [128,128], processor_dims = [1,1]
+   integer, dimension(ndims), parameter :: grid_size = [64,64], processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false., .true.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [Ls,Lx]
@@ -45,7 +45,7 @@ module TravelingWave_Poisson_2D_module
 
    !> Solver parameters
    real, parameter :: tol = 1e-16, div_tol = 1e-1, omega = 1.0
-   integer, parameter :: max_iter = 10, multigrid_max_level = 3
+   integer, parameter :: max_iter = 10000*(1.0 + 1.0 - omega), multigrid_max_level = 1
 
    public :: TravelingWave_Poisson_2D_main
 
@@ -243,7 +243,7 @@ contains
             dss => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
             dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-            combined_stencils = dxx + dss!/(hd*hd)
+            combined_stencils = dxx + dss
 
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
             call apply_FDstencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, laplacian_p)
@@ -295,7 +295,7 @@ contains
             call apply_FDstencil_2D(dx_2D, u_block%matrix_ptr_2D, uv_local_indices, alpha, beta, u_x)
             call apply_FDstencil_2D(ds_2D, v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, v_s)
 
-            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (u_x + v_s)!/hd)
+            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (u_x + v_s)
 
          end do
       end do
@@ -381,7 +381,7 @@ contains
                dss => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
                dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
-               combined_stencils = dxx + dss!/(hd*hd)
+               combined_stencils = dxx + dss
 
                call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
 
