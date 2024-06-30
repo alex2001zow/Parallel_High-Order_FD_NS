@@ -10,16 +10,11 @@ module FD_module
       integer :: ndims, num_derivatives, num_stencil_elements, combination_of_stencil_sizes, stencil_coefficients_size
       integer, dimension(:), allocatable :: derivatives, stencil_sizes
       real, dimension(:), allocatable :: stencil_coefficients, scaled_stencil_coefficients
-
-      ! Pointers for different dimensions. It should be in this order x, y, z, derivative, beta, alpha
-      real, contiguous, dimension(:,:,:,:), pointer ::coefficients_ptr
-      real, contiguous, dimension(:,:,:,:,:), pointer :: coefficients_ptr_2D
-      real, contiguous, dimension(:,:,:,:,:,:), pointer :: coefficients_ptr_3D
    end type FDstencil_type
 
    public :: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil
-   public :: apply_FDstencil, apply_FDstencil_2D, update_value_from_stencil, update_value_from_stencil_2D, &
+   public :: apply_FDstencil, apply_FDstencil_1D, apply_FDstencil_2D, update_value_from_stencil, update_value_from_stencil_2D, &
       set_2D_matrix_coefficients
    public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index, get_coefficients_wrapper
    public :: calculate_scaled_coefficients
@@ -269,6 +264,16 @@ contains
 
    end subroutine apply_FDstencil
 
+   !> Apply the finite difference stencil to a 1D-matrix
+   pure subroutine apply_FDstencil_1D(stencil_1D, matrix_1D, indices, alpha, beta, result)
+      real, dimension(:), intent(in) :: stencil_1D, matrix_1D
+      integer, dimension(:), intent(in) :: indices, alpha, beta
+      real, intent(out) :: result
+
+      result = sum(stencil_1D * matrix_1D(indices(1)-alpha(1):indices(1)+beta(1)))
+
+   end subroutine apply_FDstencil_1D
+
    !> Apply the finite difference stencil to a 2D-matrix
    pure subroutine apply_FDstencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, result)
       real, dimension(:,:), intent(in) :: stencil_2D, matrix_2D
@@ -300,7 +305,7 @@ contains
       call apply_FDstencil(ndims, num_elements, element_in_block, stencil_sizes, alphas, coefficients, dims, index, matrix, val)
 
       val = val - center_coefficient_value * matrix(global_matrix_index + element_in_block) ! Subtract the center coefficient times the matrix value.
-      val = (f_val - val) / (center_coefficient_value+1e-6) ! Divide by the center coefficient to solve for the new value.
+      val = (f_val - val) / center_coefficient_value ! Divide by the center coefficient to solve for the new value.
 
    end subroutine update_value_from_stencil
 
@@ -318,7 +323,7 @@ contains
       center_coefficient_value = stencil_2D(alpha(1)+1,alpha(2)+1)
 
       val = val - center_coefficient_value * matrix_2D(indices(1), indices(2))
-      val = (f_val - val) / (center_coefficient_value + 1e-6)
+      val = (f_val - val) / center_coefficient_value
 
    end subroutine update_value_from_stencil_2D
 

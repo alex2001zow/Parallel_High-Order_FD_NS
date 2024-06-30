@@ -100,7 +100,6 @@ contains
       block_output%f_matrix = 0.0
       block_output%residual_matrix = 0.0
 
-
       call setup_matrix_pointers(block_output)
 
    end subroutine create_block_type

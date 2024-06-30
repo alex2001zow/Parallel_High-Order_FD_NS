@@ -1,7 +1,8 @@
 module comm_module
    use mpi, only : MPI_REQUEST_NULL
    use constants_module, only: neighbor_current_rank, neighbor_non_existant_rank
-   use utility_functions_module, only: IDX_XD, IDX_XD_INV, print_real_array, print_integer_array, sleeper_function
+   use utility_functions_module, only: IDX_XD, IDX_XD_INV, print_integer_1D_array, print_integer_2D_array, &
+      sleeper_function, reshape_integer_1D_to_2D, reshape_integer_1D_to_3D
    use mpi_wrapper_module, only: create_cart_communicator_mpi_wrapper, &
       get_cart_coords_mpi_wrapper,change_MPI_COMM_errhandler_mpi_wrapper, &
       original_MPI_COMM_errhandler_mpi_wrapper, cart_rank_mpi_wrapper, &
@@ -232,7 +233,10 @@ contains
       integer, dimension(comm%ndims) :: neighbor_array
       integer :: current_rank, start_index, end_index
       integer, dimension(comm%ndims) :: coords
-      integer, dimension(comm%world_size * (comm%ndims+1)) :: rank_and_coords
+      integer, dimension(comm%world_size), target :: ranks
+      integer, dimension(comm%world_size * (comm%ndims+1)), target :: rank_and_coords
+      integer, contiguous, dimension(:), pointer :: ranks_ptr
+      integer, contiguous, dimension(:,:), pointer :: ranks_2D_ptr
 
       neighbor_array = 3
 
@@ -254,12 +258,13 @@ contains
 
       write(iounit, *) "Cartesian grid:"
 
-      !!!! Print the cartesian grid of the ranks.
+      ! Print the cartesian grid of the ranks.
 
       ! Iterate over all ranks in the cartesian communicator
       do current_rank = 1, comm%world_size
          ! Get the coordinates for the current rank
          call get_cart_coords_mpi_wrapper(comm%comm, current_rank-1, comm%ndims, coords)
+         ranks(current_rank) = current_rank-1
 
          start_index = (current_rank-1) * (comm%ndims+1) + 1
          end_index = current_rank * (comm%ndims+1)
@@ -267,8 +272,17 @@ contains
 
       end do
 
-      call print_integer_array(comm%ndims, comm%processor_dim, comm%processor_dim*0, comm%processor_dim, &
-         rank_and_coords, comm%ndims+1, "Rank and coords: ", iounit)
+      ranks_ptr => ranks
+
+      select case(comm%ndims)
+       case(1)
+         call print_integer_1D_array(ranks, iounit)
+       case(2)
+         call reshape_integer_1D_to_2D(comm%processor_dim, ranks, ranks_2D_ptr)
+         call print_integer_2D_array(ranks_2D_ptr, iounit)
+       case default
+         write(iounit, *) "Printing for more than 2 dimensions is not supported."
+      end select
 
    end subroutine print_cart_comm_type
 

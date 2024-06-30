@@ -243,7 +243,7 @@ contains
       real, intent(in) :: x_old, residual, Jac_residual
       real, intent(out) :: x_new
 
-      x_new = x_old - residual / (Jac_residual + 1e-6) ! J + 1e-6 to avoid division by zero.
+      x_new = x_old - residual / (Jac_residual)
 
    end subroutine Newtons_iteration
 
@@ -252,11 +252,11 @@ contains
       real, intent(in) :: x_old, x_new
       real, intent(out) :: relative_difference
 
-      relative_difference = abs(x_new - x_old) / ((abs(x_new) + abs(x_old))/2.0 + 1e-6)
+      relative_difference = abs(x_new - x_old) / (max(abs(x_new), abs(x_old))+1e-6)
 
    end subroutine calculate_relative_difference
 
-   !> Check for convergence
+   !> Check for convergence. Should also include the residual to see if the solution is correct.
    !! norm_array(1) = local norm
    !! norm_array(2) = global norm
    !! norm_array(3) = previous global norm
@@ -274,7 +274,7 @@ contains
          int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), comm)
 
       ! Scale the norm depending on the number of grid points
-      norm_array(2) = norm_array(2) * norm_scaling
+      norm_array(2) = norm_array(2) !* norm_scaling
 
       ! Calculate the relative difference
       call calculate_relative_difference(norm_array(3), norm_array(2), current_relative_norm)

@@ -22,11 +22,11 @@ module block_test_module
    integer, parameter :: ndims = 2
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = 8, processor_dims = [1,1]
-   logical, dimension(ndims), parameter :: periods = [.false.,.false.]
+   integer, dimension(ndims), parameter :: grid_size = 4, processor_dims = [1,1]
+   logical, dimension(ndims), parameter :: periods = [.false.,.true.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
-   integer, dimension(ndims), parameter :: stencil_sizes = 3
+   integer, dimension(ndims), parameter :: stencil_sizes = 5
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 

@@ -5,15 +5,17 @@ module utility_functions_module
    private
    public :: reshape_real_1D_to_2D, reshape_real_1D_to_3D, reshape_real_1D_to_4D, reshape_real_1D_to_5D, &
       reshape_real_1D_to_6D, reshape_real_1D_to_7D
+   public :: reshape_integer_1D_to_2D, reshape_integer_1D_to_3D
    public :: IDX_XD, IDX_XD_INV
-   public :: print_real_array, print_integer_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
+   public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
+   public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
    public :: calculate_dx, swap_pointers
    public :: sleeper_function
 
 contains
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 2D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 2D-array
    subroutine reshape_real_1D_to_2D(dims, array_1D, array_2D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -23,7 +25,7 @@ contains
       call c_f_pointer(c_loc(array_1D), array_2D, dims)
    end subroutine reshape_real_1D_to_2D
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 3D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 3D-array
    subroutine reshape_real_1D_to_3D(dims, array_1D, array_3D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -33,7 +35,7 @@ contains
       call c_f_pointer(c_loc(array_1D), array_3D, dims)
    end subroutine reshape_real_1D_to_3D
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 4D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 4D-array
    subroutine reshape_real_1D_to_4D(dims, array_1D, array_4D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -43,7 +45,7 @@ contains
       call c_f_pointer(c_loc(array_1D), array_4D, dims)
    end subroutine reshape_real_1D_to_4D
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 5D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 5D-array
    subroutine reshape_real_1D_to_5D(dims, array_1D, array_5D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -53,7 +55,7 @@ contains
       call c_f_pointer(c_loc(array_1D), array_5D, dims)
    end subroutine reshape_real_1D_to_5D
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 6D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 6D-array
    subroutine reshape_real_1D_to_6D(dims, array_1D, array_6D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -63,7 +65,7 @@ contains
       call c_f_pointer(c_loc(array_1D), array_6D, dims)
    end subroutine reshape_real_1D_to_6D
 
-   !> Routine to use c_f_pointer to reshape a contiguous 1D-array into an 7D-array
+   !> Routine to use c_f_pointer to reshape a contiguous real 1D-array into an 7D-array
    subroutine reshape_real_1D_to_7D(dims, array_1D, array_7D)
       integer, dimension(:), intent(in) :: dims
       real, contiguous, dimension(:), pointer, intent(in) :: array_1D
@@ -72,6 +74,26 @@ contains
       ! Assign the C pointer to the target Fortran array
       call c_f_pointer(c_loc(array_1D), array_7D, dims)
    end subroutine reshape_real_1D_to_7D
+
+   !> Routine to use c_f_pointer to reshape a contiguous integer 1D-array into a 2D-array
+   subroutine reshape_integer_1D_to_2D(dims, array_1D, array_2D)
+      integer, dimension(:), intent(in) :: dims
+      integer, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      integer, contiguous, dimension(:,:), pointer, intent(out) :: array_2D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_2D, dims)
+   end subroutine reshape_integer_1D_to_2D
+
+   !> Routine to use c_f_pointer to reshape a contiguous integer 1D-array into a 3D-array
+   subroutine reshape_integer_1D_to_3D(dims, array_1D, array_3D)
+      integer, dimension(:), intent(in) :: dims
+      integer, contiguous, dimension(:), pointer, intent(in) :: array_1D
+      integer, contiguous, dimension(:,:,:), pointer, intent(out) :: array_3D
+
+      ! Assign the C pointer to the target Fortran array
+      call c_f_pointer(c_loc(array_1D), array_3D, dims)
+   end subroutine reshape_integer_1D_to_3D
 
    !> Global index from ndims, dims, indices.
    pure subroutine IDX_XD(ndims, dims, indices, global_index)
@@ -212,6 +234,35 @@ contains
 
    end subroutine print_integer_array
 
+   !> Routine to print a 1D array of type integer
+   subroutine print_integer_1D_array(array, iounit)
+      integer, dimension(:), intent(in) :: array
+      integer, intent(in) :: iounit
+
+      integer :: ii
+
+      do ii = 1, size(array)
+         write(iounit, "(I6)", advance="no") array(ii)
+      end do
+
+   end subroutine print_integer_1D_array
+
+   !> Routine to print a 1D array of type integer
+   subroutine print_integer_2D_array(array, iounit)
+      integer, dimension(:,:), intent(in) :: array
+      integer, intent(in) :: iounit
+
+      integer :: ii, jj
+
+      do ii = 1, size(array, 2)
+         write(iounit, *)
+         do jj = 1, size(array, 1)
+            write(iounit,"(I6)", advance="no") array(jj, ii)
+         end do
+      end do
+
+   end subroutine print_integer_2D_array
+
    !> Routine to print a 1D array of type real
    subroutine print_real_1D_array(array, iounit)
       real, dimension(:), intent(in) :: array
@@ -220,7 +271,7 @@ contains
       integer :: ii
 
       do ii = 1, size(array)
-         write(iounit, "(F5.1)", advance="no") array(ii)
+         write(iounit, "(F10.3)", advance="no") array(ii)
       end do
 
    end subroutine print_real_1D_array
@@ -255,7 +306,7 @@ contains
          do jj = 1, size(array, 2)
             write(iounit, *)
             do kk = 1, size(array, 1)
-               write(iounit,"(F5.1)", advance="no") array(kk, jj, ii)
+               write(iounit,"(F10.3)", advance="no") array(kk, jj, ii)
             end do
          end do
       end do
