@@ -1,8 +1,8 @@
-module TravelingWave_Poisson_2D_module
+module TravellingWave_2D_module
    use constants_module, only: pi, MASTER_RANK
    use mpi, only: MPI_WTIME, MPI_DOUBLE_PRECISION, MPI_SUM
    use utility_functions_module, only:open_txt_file, close_txt_file, sleeper_function, &
-      reshape_real_1D_to_2D
+      reshape_real_1D_to_2D, swap_pointers_2D
    use mpi_wrapper_module, only: write_block_data_to_file, all_reduce_mpi_wrapper
    use solver_module, only: SolverParamsType, set_SolverParamsType, ResultType, print_resultType
    use comm_module, only: comm_type, create_cart_comm_type, deallocate_cart_comm_type, print_cart_comm_type
@@ -28,30 +28,32 @@ module TravelingWave_Poisson_2D_module
 
    !> Physical parameters
    real, parameter :: g = 9.81, mu = 1.3059*(1e-6), rho = 1.0!, nu = mu/rho
-   real, dimension(ndims_2D), parameter :: F = [0.0, -rho*g]
+   real, dimension(ndims_2D), parameter :: F = [0,0]![0.0, -rho*g]
 
    !> Domain parameters
    real, parameter :: Ls = 1.0, Lx = 31.0
 
    !> Wave parameters
-   real, parameter :: t_0 = 0.0, t_1 = 10.0, t_steps = 1, dt = (t_1 - t_0)/t_steps
+   real, parameter :: t_0 = 0.0, t_1 = 1.0/10000.0, t_steps = 1, dt = (t_1 - t_0)/t_steps
    real :: current_t = t_0
    real, parameter :: kh = 1.0, lwave = Lx, kwave = 2.0*pi/lwave, hd = kh/kwave, cwave = sqrt(g/kwave*tanh(kh)), &
       Twave = lwave/cwave, wwave=2.0*pi/Twave, Hwave = 0.02
 
    !> Grid parameters
-   integer, dimension(ndims_2D), parameter :: grid_size = [32,32], processor_dims = [1,1]
-   logical, dimension(ndims_2D), parameter :: periods = [.false., .true.]
+   integer, dimension(ndims_2D), parameter :: grid_size = [128,128], processor_dims = [1,1]
+   logical, dimension(ndims_2D), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims_2D), parameter :: domain_begin = [0.0,0.0], domain_end = [Ls,Lx]
-   integer, dimension(ndims_2D), parameter :: stencil_sizes = 3
+   integer, dimension(ndims_2D), parameter :: stencil_sizes = 7
    integer, dimension(ndims_2D), parameter :: uv_ghost_begin = [0,0], uv_ghost_end = [0,0]
-   integer, dimension(ndims_2D), parameter :: p_ghost_begin = [1,0], p_ghost_end = [1,0]
+   integer, dimension(ndims_2D), parameter :: p_ghost_begin = [1,1], p_ghost_end = [1,1]
    integer, dimension(ndims_2D), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
+
    !> Multigrid solver parameters
-   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 1.0
-   integer, parameter :: max_iter = 10000 * (1.0 + 1.0 - omega), multigrid_max_level = 1
+   integer, parameter:: direct_or_iterative = 1, Jacobi_or_GS = 1
+   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
+   integer, parameter :: max_iter = 100000 * (1.0 + 1.0 - omega), multigrid_max_level = 1
 
    public :: TravelingWave_Poisson_2D_main
 
@@ -73,7 +75,7 @@ contains
       !call sleeper_function(1)
 
       ! Set the solver parameters: tol, div_tol, max_iter, Jacobi=1 and GS=2
-      call set_SolverParamsType(tol, div_tol, max_iter, 2, solver_params)
+      call set_SolverParamsType(tol, div_tol, max_iter, Jacobi_or_GS, solver_params)
 
       ! Create 1D and 2D cartesian communicators
       call create_cart_comm_type(1, processor_dims(2:2), periods(2:2), reorder, rank, world_size, comm_1D_params)
@@ -95,13 +97,13 @@ contains
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v_params)
 
       call create_block_type(2, 1, 1, domain_begin, domain_end, grid_size, comm_2D_params, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, 1, p_params)
+         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p_params)
 
       ! Write the analytical functions to the 1D block (initial condition for eta)
-      call Write_analytical_function_eta(eta_params)
+      call Write_analytical_function_eta(eta_params, t_0)
 
       ! Write the analytical functions to the 2D blocks (initial conditions for u, v and p)
-      call Write_analytical_function_uvp(u_params, v_params, p_params)
+      call Write_analytical_function_uvp(u_params, v_params, p_params, t_0)
 
       ! Time and solve the system
       result_array_with_timings(1) = MPI_WTIME()
@@ -123,6 +125,8 @@ contains
          write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
       end if
 
+      call calculate_residual(comm_2D_params, p_params, FDstencil_2D_params)
+
       ! Write the block data to a .txt file
       call open_txt_file("output/output_from_", rank, iounit)
       !call print_cart_comm_type(comm_1D_params, iounit)
@@ -134,11 +138,11 @@ contains
       call close_txt_file(iounit)
 
       ! Write the block data to a .dat file
-      call write_block_data_to_file(u_params%data_layout, "output/u_solution.dat", comm_2D_params%comm, u_params%matrix_ptr)
-      call write_block_data_to_file(v_params%data_layout, "output/v_solution.dat", comm_2D_params%comm, v_params%matrix_ptr)
-      call write_block_data_to_file(p_params%data_layout, "output/p_solution.dat", comm_2D_params%comm, p_params%matrix_ptr)
-      call write_block_data_to_file(eta_params%data_layout, "output/eta_solution.dat", comm_1D_params%comm, eta_params%matrix_ptr)
-      call write_block_data_to_file(p_params%data_layout, "output/vel_div.dat", comm_2D_params%comm, p_params%f_matrix_ptr)
+      call write_block_data_to_file(u_params%data_layout, "output/u.dat", comm_2D_params%comm, u_params%matrix_ptr)
+      call write_block_data_to_file(v_params%data_layout, "output/v.dat", comm_2D_params%comm, v_params%matrix_ptr)
+      call write_block_data_to_file(p_params%data_layout, "output/p.dat", comm_2D_params%comm, p_params%matrix_ptr)
+      call write_block_data_to_file(eta_params%data_layout, "output/eta.dat", comm_1D_params%comm, eta_params%matrix_ptr)
+      call write_block_data_to_file(p_params%data_layout, "output/rhs.dat", comm_2D_params%comm, p_params%f_matrix_ptr)
       call write_block_data_to_file(p_params%data_layout, "output/residual.dat", comm_2D_params%comm, p_params%residual_matrix_ptr)
 
       ! Deallocate used memory
@@ -205,7 +209,7 @@ contains
       call calculate_scaled_coefficients(eta_block%ndims, eta_block%extended_grid_dx, FDstencil_1D)
 
       !$omp parallel do default(none) &
-      !$omp shared(u_block, v_block, eta_block, FDstencil_1D) &
+      !$omp shared(dt, u_block, v_block, eta_block, FDstencil_1D) &
       !$omp private(ii, alpha, beta, coefficients, dx, eta_x, u, v)
       do ii = eta_block%block_begin_c(1)+1, eta_block%block_end_c(1)
 
@@ -221,16 +225,11 @@ contains
 
          eta_block%f_matrix_ptr(ii) = v - u * eta_x
 
+         eta_block%matrix_ptr(ii) = eta_block%matrix_ptr(ii) + dt * eta_block%f_matrix_ptr(ii)
+
       end do
 
       !$omp end parallel do
-
-      !$omp parallel do default(none) &
-      !$omp shared(dt, eta_block) &
-      !$omp private(ii)
-      do ii = eta_block%block_begin_c(1)+1, eta_block%block_end_c(1)
-         eta_block%matrix_ptr(ii) = eta_block%matrix_ptr(ii) + dt * eta_block%f_matrix_ptr(ii)
-      end do
 
    end subroutine calculate_kinematic_bc
 
@@ -250,7 +249,7 @@ contains
       call calculate_scaled_coefficients(u_block%ndims, u_block%extended_grid_dx, FDstencil_2D)
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(u_block, v_block, FDstencil_2D) &
+      !$omp shared(dt, u_block, v_block, FDstencil_2D) &
       !$omp private(ii, jj, uv_local_indices, alpha, beta, coefficients, ds, dx, dss, dxx, combined_stencil, combined_stencil_2D, u, v)
       do ii = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
          do jj = u_block%block_begin_c(1)+1, u_block%block_end_c(1)
@@ -267,28 +266,19 @@ contains
             dss => coefficients(2 * FDstencil_2D%num_stencil_elements + 1:3 * FDstencil_2D%num_stencil_elements)
             dxx => coefficients(3 * FDstencil_2D%num_stencil_elements + 1:4 * FDstencil_2D%num_stencil_elements)
 
-            combined_stencil = (mu/rho) * (dxx + dss/(hd*hd)) - (u * dx + v/hd * ds)
+            combined_stencil = (mu/rho) * (dxx + dss/(hd*hd)) - (u * dx + v/hd * ds) + F(1)
             call reshape_real_1D_to_2D(FDstencil_2D%stencil_sizes, combined_stencil, combined_stencil_2D)
-
-            call apply_FDstencil_2D(combined_stencil_2D + F(1), u_block%matrix_ptr_2D, uv_local_indices, alpha, beta, &
+            call apply_FDstencil_2D(combined_stencil_2D, u_block%matrix_ptr_2D, uv_local_indices, alpha, beta, &
                u_block%f_matrix_ptr_2D(jj,ii))
 
-            ! Maybe add F into the combined stencil before making it 2D
+            combined_stencil = (mu/rho) * (dxx + dss/(hd*hd)) - (u * dx + v/hd * ds) + F(2)
+            call reshape_real_1D_to_2D(FDstencil_2D%stencil_sizes, combined_stencil, combined_stencil_2D)
             call apply_FDstencil_2D(combined_stencil_2D + F(2), v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, &
                v_block%f_matrix_ptr_2D(jj,ii))
 
-         end do
-      end do
+            !u_block%f_matrix_ptr_2D(jj,ii) = u_block%matrix_ptr_2D(jj,ii) + dt * u_block%f_matrix_ptr_2D(jj,ii)
+            !v_block%f_matrix_ptr_2D(jj,ii) = v_block%matrix_ptr_2D(jj,ii) + dt * v_block%f_matrix_ptr_2D(jj,ii)
 
-      !$omp end parallel do
-
-      !$omp parallel do collapse(2) default(none) &
-      !$omp shared(dt, u_block, v_block) &
-      !$omp private(ii, jj)
-      do ii = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
-         do jj = u_block%block_begin_c(1)+1, u_block%block_end_c(1)
-            u_block%f_matrix_ptr_2D(jj,ii) = u_block%matrix_ptr_2D(jj,ii) + dt * u_block%f_matrix_ptr_2D(jj,ii)
-            v_block%f_matrix_ptr_2D(jj,ii) = v_block%matrix_ptr_2D(jj,ii) + dt * v_block%f_matrix_ptr_2D(jj,ii)
          end do
       end do
 
@@ -329,7 +319,7 @@ contains
             call apply_FDstencil_2D(dx_2D, u_block%f_matrix_ptr_2D, uv_local_indices, alpha, beta, u_x)
             call apply_FDstencil_2D(ds_2D, v_block%f_matrix_ptr_2D, uv_local_indices, alpha, beta, v_s)
 
-            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (rho/dt) * (u_x + v_s/hd)
+            p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) =  (u_x + v_s/hd) !(rho/dt) *
 
          end do
       end do
@@ -351,9 +341,9 @@ contains
 
       write(0,*) "Multigrid level: ", level
 
-
+      ! If max level is reached we solve the pressure poisson equation
       if(level == max_level) then
-         ! If max level is reached we solve the pressure poisson equation
+
          call solve_pressure_poisson(comm, u_block_fine, v_block_fine, p_block_fine, FDstencil, solver, result)
 
       else ! If max level is not reached we restrict the residual to a coarser grid
@@ -365,8 +355,8 @@ contains
          call create_block_type(2, 1, 1, domain_begin, domain_end, p_block_fine%grid_size/2, comm, &
             p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, 1, p_block_coarse)
 
-         ! Compute residual errors which is done inside the solve_pressure_poisson subroutine
-
+         ! Compute residual errors
+         call calculate_residual(comm, p_block_fine, FDstencil)
 
          ! Restrict the residual to the coarser grid
          call full_weighing_restriction_2D(p_block_fine%extended_block_dims, p_block_coarse%extended_block_dims, &
@@ -386,7 +376,8 @@ contains
          ! Second-smoothing
          call solve_pressure_poisson(comm, u_block_fine, v_block_fine, p_block_fine, FDstencil, solver, result)
 
-         ! Calculate the residual which is done inside the solve_pressure_poisson subroutine
+         ! Calculate the residuale
+         call calculate_residual(comm, p_block_fine, FDstencil)
 
          ! Restrict the residual to the coarser grid again
          call full_weighing_restriction_2D(p_block_fine%extended_block_dims, p_block_coarse%extended_block_dims, &
@@ -443,7 +434,6 @@ contains
             dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
             combined_stencils = (dxx + dss/(hd*hd))
-
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
             call apply_FDstencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, laplacian_p)
 
@@ -453,6 +443,12 @@ contains
       end do
 
       !$omp end parallel do
+
+      ! Set the boundary conditions of the residual to zero. Parallelize this
+      p_block%residual_matrix_ptr_2D(:,1) = 0.0
+      p_block%residual_matrix_ptr_2D(:,size(p_block%residual_matrix_ptr_2D,2)) = 0.0
+      p_block%residual_matrix_ptr_2D(1,:) = 0.0
+      p_block%residual_matrix_ptr_2D(size(p_block%residual_matrix_ptr_2D,1),:) = 0.0
 
    end subroutine calculate_residual
 
@@ -477,7 +473,12 @@ contains
       converged = 0
       it = 0
       do while(converged /= 1 .and. it < solver%max_iter)
-         call poisson_iteration(p_block, FDstencil, norm_array(1), norm_array(2), norm_array(3), norm_array(4))
+         if(solver%solver_type == 2) then
+            call GS_red_black(p_block, FDstencil, norm_array(1), norm_array(2), norm_array(3), norm_array(4))
+         else if(solver%solver_type == 1) then
+            call Jacobi(p_block, FDstencil, norm_array(1), norm_array(2), norm_array(3), norm_array(4))
+            call swap_pointers_2D(p_block%matrix_ptr_2D, p_block%temp_matrix_ptr_2D)
+         end if
 
          call write_pressure_BC(u_block, v_block, p_block)
          call sendrecv_data_neighbors(comm%comm, p_block, p_block%matrix_ptr)
@@ -499,7 +500,7 @@ contains
    end subroutine solve_pressure_poisson
 
    !> A single iteration of the Gauss-Seidel method
-   subroutine poisson_iteration(p_block, FDstencil, local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm)
+   subroutine GS_red_black(p_block, FDstencil, local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm)
       type(block_type), intent(inout) :: p_block
       type(FDstencil_type), intent(inout) :: FDstencil
       real, intent(out) :: local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm
@@ -518,7 +519,7 @@ contains
 
       ! Red-black Gauss-Seidel
       do color = 0, 1
-         !$omp parallel do collapse(2) default(none) reduction(+:local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm) &
+         !$omp parallel do collapse(2) default(none) reduction(+:local_u_diff_norm, local_u_norm) &
          !$omp shared(p_block, FDstencil, color) &
          !$omp private(ii, jj, p_local_indices, alpha, beta, coefficients, dxx, dss, combined_stencils, &
          !$omp combined_stencils_2D, f_val, u0_val, u1_val, r0_val, r1_val)
@@ -547,12 +548,8 @@ contains
                u1_val = (1.0 - omega) * u0_val + omega * u1_val
 
                p_block%matrix_ptr_2D(jj,ii) = u1_val
-               p_block%residual_matrix_ptr_2D(jj,ii) = r1_val
-
                local_u_diff_norm = local_u_diff_norm + (abs(u1_val - u0_val)**2)
-               local_r_diff_norm = local_r_diff_norm + (abs(r1_val - r0_val)**2)
                local_u_norm = local_u_norm + (abs(u1_val)**2)
-               local_r_norm = local_r_norm + (abs(r1_val)**2)
 
             end do
          end do
@@ -561,7 +558,63 @@ contains
 
       end do
 
-   end subroutine poisson_iteration
+   end subroutine GS_red_black
+
+   !> A single iteration of the Jacobi method
+   subroutine Jacobi(p_block, FDstencil, local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm)
+      type(block_type), intent(inout) :: p_block
+      type(FDstencil_type), intent(inout) :: FDstencil
+      real, intent(out) :: local_u_diff_norm, local_r_diff_norm, local_u_norm, local_r_norm
+
+      integer :: ii, jj
+      integer, dimension(p_block%ndims) :: p_local_indices, alpha, beta
+      real, contiguous, dimension(:), pointer :: coefficients, dxx, dss
+      real, dimension(product(FDstencil%stencil_sizes)), target :: combined_stencils
+      real, contiguous, dimension(:,:), pointer :: combined_stencils_2D
+      real :: f_val, u0_val, u1_val, r0_val, r1_val
+
+      local_u_diff_norm = 0.0
+      local_r_diff_norm = 0.0
+      local_u_norm = 0.0
+      local_r_norm = 0.0
+
+      !$omp parallel do collapse(2) default(none) reduction(+:local_u_diff_norm, local_u_norm) &
+      !$omp shared(p_block, FDstencil) &
+      !$omp private(ii, jj, p_local_indices, alpha, beta, coefficients, dxx, dss, combined_stencils, &
+      !$omp combined_stencils_2D, f_val, u0_val, u1_val, r0_val, r1_val)
+      do ii = p_block%block_begin_c(2)+1, p_block%block_end_c(2)
+         do jj = p_block%block_begin_c(1)+1, p_block%block_end_c(1)
+            p_local_indices = [jj,ii]
+
+            f_val = p_block%f_matrix_ptr_2D(jj,ii)
+            u0_val = p_block%matrix_ptr_2D(jj,ii)
+            r0_val = p_block%residual_matrix_ptr_2D(jj,ii)
+
+            call get_coefficients_wrapper(FDstencil, [1,1], p_block%extended_block_dims, &
+               p_local_indices, alpha, beta, coefficients)
+
+            dss => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
+            dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
+
+            combined_stencils = dxx + dss/(hd*hd)
+
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
+
+            call update_value_from_stencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, &
+               f_val, u1_val, r1_val)
+
+            u1_val = (1.0 - omega) * u0_val + omega * u1_val
+
+            p_block%matrix_ptr_2D(jj,ii) = u1_val
+            local_u_diff_norm = local_u_diff_norm + (abs(u1_val - u0_val)**2)
+            local_u_norm = local_u_norm + (abs(u1_val)**2)
+
+         end do
+      end do
+
+      !$omp end parallel do
+
+   end subroutine Jacobi
 
    !> Correct the velocity field with the pressure field
    subroutine correct_velocity_field(u_block, v_block, p_block, FDstencil_2D)
@@ -641,16 +694,16 @@ contains
             call sigma_2_z(sigma, hd, z)
 
             if(p_global_indices(1) == 0) then
-               p_block%matrix_ptr_2D(jj, ii) = p_block%matrix_ptr_2D(jj+2,ii) !- g * hd * 2.0 * p_block%grid_dx(1)
+               p_block%matrix_ptr_2D(jj, ii) = pp_d!p_block%matrix_ptr_2D(jj+2,ii) !- g * hd * 2.0 * p_block%grid_dx(1)
             end if
 
             if(p_global_indices(1) == p_block%extended_grid_size(1)-1) then
-               p_block%matrix_ptr_2D(jj, ii) = 0.0! Should be zero at the free surface
+               p_block%matrix_ptr_2D(jj, ii) = pp_d!0.0! Should be zero at the free surface
             end if
 
-            ! if(p_global_indices(2) == 0 .or. p_global_indices(2) == p_block%extended_grid_size(2)-1) then
-            !    p_block%matrix_ptr_2D(jj, ii) = pp_d! Should be zero at the free surface
-            ! end if
+            if(p_global_indices(2) == 0 .or. p_global_indices(2) == p_block%extended_grid_size(2)-1) then
+               p_block%matrix_ptr_2D(jj, ii) = pp_d! Should be zero at the free surface
+            end if
 
          end do
       end do
@@ -660,8 +713,9 @@ contains
    end subroutine write_pressure_BC
 
    ! Write the analytical function of the surface elevation 1D
-   subroutine Write_analytical_function_eta(eta_block)
+   subroutine Write_analytical_function_eta(eta_block, t)
       type(block_type), intent(inout) :: eta_block
+      real, intent(in) :: t
 
       integer :: ii
       real, dimension(eta_block%ndims) :: point
@@ -669,7 +723,7 @@ contains
       real :: uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s
 
       !$omp parallel do default(none) &
-      !$omp shared(eta_block) &
+      !$omp shared(eta_block, t) &
       !$omp private(ii, point, x, uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s)
       do ii = eta_block%extended_global_begin_c(1)+1, eta_block%extended_block_end_c(1)
 
@@ -678,17 +732,20 @@ contains
 
          x = point(1)
 
-         call TravelingWave1D(Hwave, cwave, kwave, rho, g, 0.0, hd, wwave, t_0, x, &
+         call TravelingWave1D(Hwave, cwave, kwave, rho, g, 0.0, hd, wwave, t, x, &
             uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s)
 
          eta_block%matrix_ptr(ii) = eta
       end do
 
+      !$omp end parallel do
+
    end subroutine Write_analytical_function_eta
 
    ! Write the analytical function of the velocity and pressure 2D
-   subroutine Write_analytical_function_uvp(u_block, v_block, p_block)
+   subroutine Write_analytical_function_uvp(u_block, v_block, p_block, t)
       type(block_type), intent(inout) :: u_block, v_block, p_block
+      real, intent(in) :: t
 
       integer :: ii, jj
       integer, dimension(u_block%ndims) :: uv_local_indices, p_local_indices, uv_global_indices
@@ -697,7 +754,7 @@ contains
       real :: uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(u_block, v_block, p_block) &
+      !$omp shared(u_block, v_block, p_block, t) &
       !$omp private(ii, jj, uv_local_indices, p_local_indices, uv_global_indices, &
       !$omp point, x, sigma, uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s)
       do ii = u_block%extended_global_begin_c(2)+1, u_block%extended_block_end_c(2)
@@ -712,9 +769,7 @@ contains
             sigma = point(1) ! we should do 1-y to start from the surface! Also do it in python code
             x = point(2)
 
-            !print*, point, u_block%grid_dx
-
-            call TravelingWave1D(Hwave, cwave, kwave, rho, g, sigma, hd, wwave, t_0, x, &
+            call TravelingWave1D(Hwave, cwave, kwave, rho, g, sigma, hd, wwave, t, x, &
                uu, uu_x, ww, ww_z, eta, etax, etaxx, pp_d, pp_s)
 
             u_block%matrix_ptr_2D(uv_local_indices(1), uv_local_indices(2)) = uu
@@ -759,4 +814,4 @@ contains
       z = sigma*h_small - h_small
    end subroutine sigma_2_z
 
-end module TravelingWave_Poisson_2D_module
+end module TravellingWave_2D_module

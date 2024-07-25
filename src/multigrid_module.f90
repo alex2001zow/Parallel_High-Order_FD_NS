@@ -62,8 +62,7 @@ contains
       real, dimension(:,:), intent(in) :: coarse_solution
 
       integer :: ii, jj
-      integer :: ci, cj
-      real :: f00, f01, f10, f11
+      integer :: fi, fj
 
       ! Initialize the fine solution with zeros if the entire array is not guaranteed to be filled.
 
@@ -79,34 +78,29 @@ contains
 
       !$omp parallel do collapse(2) default(none) &
       !$omp shared(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_residual) &
-      !$omp private(ii, jj, ci, cj, f00, f01, f10, f11)
+      !$omp private(ii, jj, fi, fj)
       do ii = 1, coarse_extended_dims(2)-1
          do jj = 1, coarse_extended_dims(1)-1
-            ci = min(2*ii, fine_extended_dims(2)-1)
-            cj = min(2*jj, fine_extended_dims(1)-1)
+            ! Compute corresponding fine grid indices
+            fi = min(2 * ii, fine_extended_dims(2)-1)
+            fj = min(2 * jj, fine_extended_dims(1)-1)
 
-            f00 = coarse_solution(jj, ii) ! f(j,i)
-            f10 = coarse_solution(jj+1, ii) ! f(j+1,i)
-            f01 = coarse_solution(jj, ii+1) ! f(j,i+1)
-            f11 = coarse_solution(jj+1, ii+1) ! f(j+1,i+1)
+            ! Directly assign values to corresponding points
+            fine_residual(fj, fi) = coarse_solution(jj, ii)
 
-            fine_residual(cj, ci) = (f00 + f10 + f01 + f11) / 4.0
-            fine_residual(cj-1, ci) = (f00 + f10) / 2.0
-            fine_residual(cj, ci-1) = (f00 + f01) / 2.0
-            fine_residual(cj-1, ci-1) = f00
+            ! Interpolate horizontally
+            fine_residual(fj, fi+1) = 0.5 * (coarse_solution(jj, ii) + coarse_solution(jj, ii+1))
 
-            if(ci == fine_extended_dims(2)-1) then
-               fine_residual(cj, ci+1) = (f01 + f11) / 2.0
-               fine_residual(cj-1, ci+1) = f01
-            end if
+            ! Interpolate vertically
+            fine_residual(fj+1, fi) = 0.5 * (coarse_solution(jj, ii) + coarse_solution(jj+1, ii))
 
-            if(cj == fine_extended_dims(1)-1) then
-               fine_residual(cj+1, ci) = (f10 + f11) / 2.0
-               fine_residual(cj+1, ci-1) = f10
-            end if
+            ! Interpolate diagonally
+            fine_residual(fj+1, fi+1) = 0.25 * (coarse_solution(jj, ii) + coarse_solution(jj, ii+1) + &
+               coarse_solution(jj+1, ii) + coarse_solution(jj+1, ii+1))
 
          end do
       end do
+
       !$omp end parallel do
 
    end subroutine bilinear_prolongation_2D

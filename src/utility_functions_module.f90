@@ -10,7 +10,7 @@ module utility_functions_module
    public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
    public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
-   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers
+   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D
    public :: sleeper_function
 
 contains
@@ -400,13 +400,23 @@ contains
 
    !> Subroutine to swap two pointers
    pure subroutine swap_pointers(ptr1, ptr2)
-      real, dimension(:), pointer, intent(inout) :: ptr1, ptr2
-      real, dimension(:), pointer :: temp_ptr
+      real, contiguous, dimension(:), pointer, intent(inout) :: ptr1, ptr2
+      real, contiguous, dimension(:), pointer :: temp_ptr
 
       temp_ptr => ptr1
       ptr1 => ptr2
       ptr2 => temp_ptr
    end subroutine swap_pointers
+
+   !> Subroutine to swap two 2D-pointers
+   pure subroutine swap_pointers_2D(ptr1, ptr2)
+      real, contiguous, dimension(:,:), pointer, intent(inout) :: ptr1, ptr2
+      real, contiguous, dimension(:,:), pointer :: temp_ptr
+
+      temp_ptr => ptr1
+      ptr1 => ptr2
+      ptr2 => temp_ptr
+   end subroutine swap_pointers_2D
 
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
    subroutine sleeper_function(sleep_time)

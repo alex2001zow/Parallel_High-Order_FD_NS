@@ -30,19 +30,22 @@ module block_module
       integer, dimension(:), allocatable :: extended_block_begin_c, extended_block_end_c, extended_block_dims
 
       ! Arrays for the matrix, f_matrix, and temp_matrix(Jacobi iteration) and the residual_matrix
-      real, dimension(:), allocatable :: matrix, f_matrix, temp_matrix, residual_matrix
+      real, dimension(:), allocatable :: matrix, new_matrix, f_matrix, temp_matrix, residual_matrix
 
       ! Direct solver matrix
       real, dimension(:), allocatable :: direct_solver_matrix
       integer, dimension(:), allocatable :: ipiv
+
+      ! Pointers to the direct solver matrix
       real, contiguous, dimension(:), pointer :: direct_solver_matrix_ptr
       real, contiguous, dimension(:,:), pointer :: direct_solver_matrix_ptr_2D
 
       ! The pointers to the matrix, f_matrix, and temp_matrix for different dimensions.
-      real, contiguous, dimension(:), pointer :: matrix_ptr, f_matrix_ptr, temp_matrix_ptr, residual_matrix_ptr
-      real, contiguous, dimension(:,:), pointer :: matrix_ptr_2D, f_matrix_ptr_2D, temp_matrix_ptr_2D, residual_matrix_ptr_2D
-      real, contiguous, dimension(:,:,:), pointer :: matrix_ptr_3D, f_matrix_ptr_3D, temp_matrix_ptr_3D, residual_matrix_ptr_3D
-      real, contiguous, dimension(:,:,:,:), pointer :: matrix_ptr_4D, f_matrix_ptr_4D, temp_matrix_ptr_4D, residual_matrix_ptr_4D
+      real, contiguous, dimension(:), pointer :: matrix_ptr, new_matrix_ptr, f_matrix_ptr, temp_matrix_ptr, residual_matrix_ptr
+      real, contiguous, dimension(:,:), pointer :: matrix_ptr_2D, new_matrix_ptr_2D, &
+         f_matrix_ptr_2D, temp_matrix_ptr_2D, residual_matrix_ptr_2D
+      real, contiguous, dimension(:,:,:), pointer :: matrix_ptr_3D, new_matrix_ptr_3D, &
+         f_matrix_ptr_3D, temp_matrix_ptr_3D, residual_matrix_ptr_3D
 
       type(block_data_layout_type) :: data_layout
    end type block_type
@@ -106,15 +109,17 @@ contains
    subroutine allocate_for_iterative_solver(block_inout)
       type(block_type), intent(inout) :: block_inout
 
-      allocate(block_inout%matrix(block_inout%extended_num_elements))
-      allocate(block_inout%f_matrix(block_inout%extended_num_elements))
-      allocate(block_inout%residual_matrix(block_inout%extended_num_elements))
-      allocate(block_inout%temp_matrix(block_inout%extended_num_elements))
+      allocate(block_inout%matrix(block_inout%extended_num_elements)) ! u_0
+      allocate(block_inout%new_matrix(block_inout%extended_num_elements)) ! u_1
+      allocate(block_inout%f_matrix(block_inout%extended_num_elements)) ! f
+      allocate(block_inout%temp_matrix(block_inout%extended_num_elements)) ! Temporary solution for Jacobi iteration
+      allocate(block_inout%residual_matrix(block_inout%extended_num_elements)) ! r
 
       block_inout%matrix = 0.0
+      block_inout%new_matrix = 0.0
       block_inout%f_matrix = 0.0
-      block_inout%residual_matrix = 0.0
       block_inout%temp_matrix = 0.0
+      block_inout%residual_matrix = 0.0
 
       call setup_matrix_pointers(block_inout)
 
@@ -124,15 +129,17 @@ contains
    subroutine allocate_for_direct_solver(block_inout)
       type(block_type), intent(inout), target :: block_inout
 
-      allocate(block_inout%direct_solver_matrix(block_inout%extended_num_elements**2))
-      allocate(block_inout%ipiv(block_inout%extended_num_elements))
-      allocate(block_inout%f_matrix(block_inout%extended_num_elements))
-      allocate(block_inout%matrix(block_inout%extended_num_elements))
+      allocate(block_inout%matrix(block_inout%extended_num_elements)) ! u_0
+      allocate(block_inout%new_matrix(block_inout%extended_num_elements)) ! u_1
+      allocate(block_inout%f_matrix(block_inout%extended_num_elements)) ! f and the solution after solving
+      allocate(block_inout%direct_solver_matrix(block_inout%extended_num_elements**2)) ! A
+      allocate(block_inout%ipiv(block_inout%extended_num_elements)) ! ipiv
 
+      block_inout%matrix = 0 ! Solution of the system
+      block_inout%new_matrix = 0 ! Temporary solution of the system
+      block_inout%f_matrix = 0 ! Right-hand side of the system
       block_inout%direct_solver_matrix = 0 ! Matrix A to solve the system
       block_inout%ipiv = 0 ! Pivot array for the LU factorization
-      block_inout%f_matrix = 0 ! Right-hand side of the system
-      block_inout%matrix = 0 ! Solution of the system
 
       ! Set the pointers to the direct solver matrix
       block_inout%direct_solver_matrix_ptr => block_inout%direct_solver_matrix
@@ -321,6 +328,7 @@ contains
 
       ! Set the pointers to the matrix, f_matrix, and temp_matrix
       block_input%matrix_ptr => block_input%matrix
+      block_input%new_matrix_ptr => block_input%new_matrix
       block_input%f_matrix_ptr => block_input%f_matrix
       block_input%temp_matrix_ptr => block_input%temp_matrix
       block_input%residual_matrix_ptr => block_input%residual_matrix
@@ -329,6 +337,8 @@ contains
       if(block_input%ndims == 2) then
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%matrix_ptr, &
             block_input%matrix_ptr_2D)
+         call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%new_matrix_ptr, &
+            block_input%new_matrix_ptr_2D)
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%f_matrix_ptr, &
             block_input%f_matrix_ptr_2D)
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%temp_matrix_ptr, &
@@ -339,22 +349,14 @@ contains
       else if(block_input%ndims == 3) then
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%matrix_ptr, &
             block_input%matrix_ptr_3D)
+         call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%new_matrix_ptr, &
+            block_input%new_matrix_ptr_3D)
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%f_matrix_ptr, &
             block_input%f_matrix_ptr_3D)
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%temp_matrix_ptr, &
             block_input%temp_matrix_ptr_3D)
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
             block_input%residual_matrix_ptr_3D)
-
-      else if(block_input%ndims == 4) then
-         call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%matrix_ptr, &
-            block_input%matrix_ptr_4D)
-         call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%f_matrix_ptr, &
-            block_input%f_matrix_ptr_4D)
-         call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%temp_matrix_ptr, &
-            block_input%temp_matrix_ptr_4D)
-         call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
-            block_input%residual_matrix_ptr_4D)
 
       end if
 
@@ -445,6 +447,7 @@ contains
       if(allocated(block_input%extended_block_dims)) deallocate(block_input%extended_block_dims)
 
       if(allocated(block_input%matrix)) deallocate(block_input%matrix)
+      if(allocated(block_input%new_matrix)) deallocate(block_input%new_matrix)
       if(allocated(block_input%f_matrix)) deallocate(block_input%f_matrix)
       if(allocated(block_input%temp_matrix)) deallocate(block_input%temp_matrix)
       if(allocated(block_input%residual_matrix)) deallocate(block_input%residual_matrix)
