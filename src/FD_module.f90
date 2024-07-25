@@ -310,20 +310,21 @@ contains
    end subroutine update_value_from_stencil
 
    !> Update the value from a stencil for a 2D-matrix
-   pure subroutine update_value_from_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, f_val, val)
+   pure subroutine update_value_from_stencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, f_val, u_val, r_val)
       real, dimension(:,:), intent(in) :: stencil_2D, matrix_2D
       integer, dimension(:), intent(in) :: indices, alpha, beta
       real, intent(in) :: f_val
-      real, intent(out) :: val
+      real, intent(out) :: u_val, r_val
 
       real :: center_coefficient_value
 
-      call apply_FDstencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, val)
+      call apply_FDstencil_2D(stencil_2D, matrix_2D, indices, alpha, beta, u_val)
+      r_val = f_val - u_val
 
       center_coefficient_value = stencil_2D(alpha(1)+1,alpha(2)+1)
 
-      val = val - center_coefficient_value * matrix_2D(indices(1), indices(2))
-      val = (f_val - val) / center_coefficient_value
+      u_val = u_val - center_coefficient_value * matrix_2D(indices(1), indices(2))
+      u_val = (f_val - u_val) / center_coefficient_value
 
    end subroutine update_value_from_stencil_2D
 
@@ -464,6 +465,7 @@ contains
 
       num_stencil_elements = product(FDstencil_type_input%stencil_sizes)
 
+      ! Maybe parallelize this loop
       do global_index = 1, FDstencil_type_input%combination_of_stencil_sizes
          call global_2_alpha_beta(ndims, FDstencil_type_input%stencil_sizes, global_index, alphas, betas)
          call global_2_start_end(ndims, FDstencil_type_input%num_derivatives, FDstencil_type_input%stencil_sizes, global_index, &

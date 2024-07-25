@@ -11,6 +11,7 @@ module block_module
 
    !> Structure to store the block information.
    type block_type
+      integer :: solver_type
       integer :: ndims, elements_per_index, used_elements_per_index
       integer :: num_elements, extended_num_elements
       real, dimension(:), allocatable :: domain_begin, domain_end, grid_dx, extended_grid_dx
@@ -31,8 +32,9 @@ module block_module
       ! Arrays for the matrix, f_matrix, and temp_matrix(Jacobi iteration) and the residual_matrix
       real, dimension(:), allocatable :: matrix, f_matrix, temp_matrix, residual_matrix
 
-      ! Direct solver array
+      ! Direct solver matrix
       real, dimension(:), allocatable :: direct_solver_matrix
+      integer, dimension(:), allocatable :: ipiv
       real, contiguous, dimension(:), pointer :: direct_solver_matrix_ptr
       real, contiguous, dimension(:,:), pointer :: direct_solver_matrix_ptr_2D
 
@@ -51,12 +53,15 @@ contains
 
    !> Subroutine to allocate the block structure. We do not use bc_begin and bc_end yet. Not sure we need them.
    subroutine create_block_type(ndims, elements_per_index, used_elements_per_index, domain_begin, domain_end, grid_size, comm, &
-      ghost_begin, ghost_end, stencil_begin, stencil_end, block_output)
+      ghost_begin, ghost_end, stencil_begin, stencil_end, solver_type, block_output)
       integer, intent(in) :: ndims, elements_per_index, used_elements_per_index
       real, dimension(:), intent(in) :: domain_begin, domain_end
       integer, dimension(:), intent(in) :: grid_size, ghost_begin, ghost_end, stencil_begin, stencil_end
+      integer, intent(in) :: solver_type
       type(comm_type), intent(in) :: comm
       type(block_type), intent(out) :: block_output
+
+      block_output%solver_type = solver_type
 
       block_output%ndims = ndims
       block_output%elements_per_index = elements_per_index
@@ -89,20 +94,57 @@ contains
       block_output%global_grid_end = -1000!block_output%extended_grid_size - &
       !(merge(1, 0, comm%periods) * block_output%stencil_end + block_output%ghost_end)
 
-      allocate(block_output%matrix(block_output%extended_num_elements))
-      allocate(block_output%f_matrix(block_output%extended_num_elements))
-      allocate(block_output%residual_matrix(block_output%extended_num_elements))
-
-      !allocate(block_output%direct_solver_matrix(block_output%extended_num_elements**2))
-      !block_output%direct_solver_matrix = 0
-
-      block_output%matrix = 0.0
-      block_output%f_matrix = 0.0
-      block_output%residual_matrix = 0.0
-
-      call setup_matrix_pointers(block_output)
+      if(solver_type == 1) then
+         call allocate_for_iterative_solver(block_output)
+      else
+         call allocate_for_direct_solver(block_output)
+      end if
 
    end subroutine create_block_type
+
+   !> Subroutine to allocate the matrix for iterative solvers.
+   subroutine allocate_for_iterative_solver(block_inout)
+      type(block_type), intent(inout) :: block_inout
+
+      allocate(block_inout%matrix(block_inout%extended_num_elements))
+      allocate(block_inout%f_matrix(block_inout%extended_num_elements))
+      allocate(block_inout%residual_matrix(block_inout%extended_num_elements))
+      allocate(block_inout%temp_matrix(block_inout%extended_num_elements))
+
+      block_inout%matrix = 0.0
+      block_inout%f_matrix = 0.0
+      block_inout%residual_matrix = 0.0
+      block_inout%temp_matrix = 0.0
+
+      call setup_matrix_pointers(block_inout)
+
+   end subroutine allocate_for_iterative_solver
+
+   !> Subroutine to allocate the matrix for direct solvers.
+   subroutine allocate_for_direct_solver(block_inout)
+      type(block_type), intent(inout), target :: block_inout
+
+      allocate(block_inout%direct_solver_matrix(block_inout%extended_num_elements**2))
+      allocate(block_inout%ipiv(block_inout%extended_num_elements))
+      allocate(block_inout%f_matrix(block_inout%extended_num_elements))
+      allocate(block_inout%matrix(block_inout%extended_num_elements))
+
+      block_inout%direct_solver_matrix = 0 ! Matrix A to solve the system
+      block_inout%ipiv = 0 ! Pivot array for the LU factorization
+      block_inout%f_matrix = 0 ! Right-hand side of the system
+      block_inout%matrix = 0 ! Solution of the system
+
+      ! Set the pointers to the direct solver matrix
+      block_inout%direct_solver_matrix_ptr => block_inout%direct_solver_matrix
+
+      ! Reshape the pointers to the direct solver matrix
+      call reshape_real_1D_to_2D([product(block_inout%extended_block_dims), product(block_inout%extended_block_dims)], &
+         block_inout%direct_solver_matrix_ptr, block_inout%direct_solver_matrix_ptr_2D)
+
+      ! Set the pointer to the f_matrix
+      call setup_matrix_pointers(block_inout)
+
+   end subroutine allocate_for_direct_solver
 
    ! Setup the block data layout type using 0-based indexing due to OpenMPI.
    subroutine setup_block_data_layout_type(ndims, elements_per_index, grid_size, processor_dims, &
@@ -283,9 +325,6 @@ contains
       block_input%temp_matrix_ptr => block_input%temp_matrix
       block_input%residual_matrix_ptr => block_input%residual_matrix
 
-      ! Set the pointers to the direct solver matrix
-      block_input%direct_solver_matrix_ptr => block_input%direct_solver_matrix
-
       ! Reshape the pointers to the matrix, f_matrix, and temp_matrix for 2D, 3D, and 4D matrices
       if(block_input%ndims == 2) then
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%matrix_ptr, &
@@ -297,11 +336,6 @@ contains
          call reshape_real_1D_to_2D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
             block_input%residual_matrix_ptr_2D)
 
-         !!! TEST
-         call reshape_real_1D_to_2D([block_input%extended_block_dims(1)*block_input%extended_block_dims(2), &
-            block_input%extended_block_dims(2)*block_input%extended_block_dims(1)], block_input%direct_solver_matrix_ptr, &
-            block_input%direct_solver_matrix_ptr_2D)
-
       else if(block_input%ndims == 3) then
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%matrix_ptr, &
             block_input%matrix_ptr_3D)
@@ -311,6 +345,7 @@ contains
             block_input%temp_matrix_ptr_3D)
          call reshape_real_1D_to_3D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
             block_input%residual_matrix_ptr_3D)
+
       else if(block_input%ndims == 4) then
          call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%matrix_ptr, &
             block_input%matrix_ptr_4D)
@@ -320,6 +355,7 @@ contains
             block_input%temp_matrix_ptr_4D)
          call reshape_real_1D_to_4D(block_input%extended_block_dims, block_input%residual_matrix_ptr, &
             block_input%residual_matrix_ptr_4D)
+
       end if
 
    end subroutine setup_matrix_pointers
@@ -413,8 +449,8 @@ contains
       if(allocated(block_input%temp_matrix)) deallocate(block_input%temp_matrix)
       if(allocated(block_input%residual_matrix)) deallocate(block_input%residual_matrix)
 
-      !!! TEST
       if(allocated(block_input%direct_solver_matrix)) deallocate(block_input%direct_solver_matrix)
+      if(allocated(block_input%ipiv)) deallocate(block_input%ipiv)
 
       call free_block_layout_type(block_input%data_layout)
 
@@ -430,6 +466,7 @@ contains
       write(iounit, *) "block_type: "
       write(iounit, *)
 
+      write(iounit, *) "solver_type: ", block_input%solver_type
       write(iounit, *) "ndims: ", block_input%ndims
       write(iounit, *) "elements_per_index: ", block_input%elements_per_index
       write(iounit, *) "used_elements_per_index: ", block_input%used_elements_per_index

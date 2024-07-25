@@ -41,8 +41,12 @@ module solver_module
    type ResultType
       integer :: converged
       integer :: iterations
-      real :: global_norm
-      real :: relative_norm
+
+      real :: global_u_norm
+      real :: global_r_norm
+
+      real :: relative_u_norm
+      real :: relative_r_norm
    end type ResultType
 
    enum, bind(C)
@@ -52,9 +56,10 @@ module solver_module
 
    public :: SolverPtrType, set_SystemSolver_pointer
    public :: SolverParamsType, set_SolverParamsType
-   public :: ResultType, print_resultType
+   public :: ResultType, set_ResultType, print_ResultType
    public :: choose_iterative_solver
    public :: check_convergence
+   public :: LU_decomposition, solve_LU_system
 
 contains
 
@@ -81,28 +86,32 @@ contains
    end subroutine set_SolverParamsType
 
    !> Set the result type
-   pure subroutine set_ResultType(converged, iterations, global_norm, relative_norm, Result)
+   pure subroutine set_ResultType(converged, iterations, global_u_norm, global_r_norm, relative_u_norm, relative_r_norm, result)
       integer, intent(in) :: converged, iterations
-      real, intent(in) :: global_norm, relative_norm
-      type(ResultType), intent(out) :: Result
+      real, intent(in) :: global_u_norm, global_r_norm, relative_u_norm, relative_r_norm
+      type(ResultType), intent(out) :: result
 
-      Result%converged = converged
-      Result%iterations = iterations
-      Result%global_norm = global_norm
-      Result%relative_norm = relative_norm
+      result%converged = converged
+      result%iterations = iterations
+      result%global_u_norm = global_u_norm
+      result%global_r_norm = global_r_norm
+      result%relative_u_norm = relative_u_norm
+      result%relative_r_norm = relative_r_norm
 
    end subroutine set_ResultType
 
    !> Print the result type
-   subroutine print_resultType(Result)
+   subroutine print_ResultType(Result)
       type(ResultType), intent(in) :: Result
 
       write(*,"(A, I12.1)") "Converged: ", Result%converged
       write(*,"(A, I12.1)") "Iterations: ", Result%iterations
-      write(*,"(A, E12.6)") "Global norm: ", Result%global_norm
-      write(*,"(A, E12.6)") "Relative norm: ", Result%relative_norm
+      write(*,"(A, E12.6)") "Global u_norm: ", Result%global_u_norm
+      write(*,"(A, E12.6)") "Global r_norm: ", Result%global_r_norm
+      write(*,"(A, E12.6)") "Relative u_norm: ", Result%relative_u_norm
+      write(*,"(A, E12.6)") "Relative r_norm: ", Result%relative_r_norm
 
-   end subroutine print_resultType
+   end subroutine print_ResultType
 
    subroutine choose_iterative_solver(comm_in, block_in, FDstencil_in, &
       functions_in, SystemSolver_in, SolverParams_in, Result_out)
@@ -145,13 +154,13 @@ contains
 
       integer :: iter, converged
       real :: norm_scaling
-      real, dimension(4) :: norm_array
+      real, dimension(10) :: norm_array
 
       ! Scale depending on the number of grid points
       norm_scaling = 1.0/product(block_in%extended_grid_size)
 
       ! local_norm, global_norm, previous_norm, relative_norm
-      norm_array = [1e3, 1e6, 1e9, 1e18]
+      norm_array = 1e3
 
       converged = 0
       iter = 0
@@ -163,7 +172,7 @@ contains
             block_in%domain_begin, block_in%domain_end, block_in%extended_grid_size, &
             block_in%block_begin_c+1, block_in%block_end_c, norm_array(1))
 
-         call check_convergence(comm_in%comm, SolverParams_in%tol, SolverParams_in%divergence_tol, norm_scaling, &
+         call check_convergence(comm_in%comm, SolverParams_in%tol, SolverParams_in%divergence_tol, iter, &
             norm_array, converged)
          if(converged == -1) then
             exit
@@ -174,7 +183,7 @@ contains
          iter = iter + 1
       end do
 
-      call set_ResultType(converged, iter, norm_array(2), norm_array(4), Result_out)
+      !call set_ResultType(converged, iter, norm_array(2), norm_array(4), Result_out)
 
    end subroutine run_GSS_solver
 
@@ -243,52 +252,100 @@ contains
       real, intent(in) :: x_old, residual, Jac_residual
       real, intent(out) :: x_new
 
-      x_new = x_old - residual / (Jac_residual)
+      x_new = x_old - residual / (Jac_residual + 1e-6)
 
    end subroutine Newtons_iteration
 
    ! Calculate the relative difference
-   elemental subroutine calculate_relative_difference(x_old, x_new, relative_difference)
-      real, intent(in) :: x_old, x_new
+   elemental subroutine calculate_relative_difference(x_new, x_old, relative_difference)
+      real, intent(in) :: x_new, x_old
       real, intent(out) :: relative_difference
 
-      relative_difference = abs(x_new - x_old) / (max(abs(x_new), abs(x_old))+1e-6)
+      relative_difference = abs(x_new - x_old) / (abs(x_new) + 1e-6)
 
    end subroutine calculate_relative_difference
 
-   !> Check for convergence. Should also include the residual to see if the solution is correct.
-   !! norm_array(1) = local norm
-   !! norm_array(2) = global norm
-   !! norm_array(3) = previous global norm
-   !! norm_array(4) = relative norm
-   subroutine check_convergence(comm, tol, divergence_tol, norm_scaling, norm_array, converged)
-      integer, intent(in) :: comm
-      real, intent(in) ::  tol, divergence_tol, norm_scaling
-      real, dimension(4), intent(inout) :: norm_array
+   !> Check for convergence
+   !! norm_array(1) = local u_diff_norm
+   !! norm_array(2) = local r_diff_norm
+   !! norm_array(3) = local u_norm
+   !! norm_array(4) = local r_norm
+   !! norm_array(5) = global u_diff_norm
+   !! norm_array(6) = global r_diff_norm
+   !! norm_array(7) = global u_norm
+   !! norm_array(8) = global r_norm
+   !! norm_array(9) = previous relative u_norm
+   !! norm_array(10) = previous relative r_norm
+   subroutine check_convergence(comm, tol, divergence_tol, it, norm_array, converged)
+      integer, intent(in) :: comm, it
+      real, intent(in) ::  tol, divergence_tol
+      real, dimension(10), intent(inout) :: norm_array
       integer, intent(out) :: converged
 
-      real :: previous_relative_norm, current_relative_norm
+      real :: relative_u_norm, relative_r_norm
 
       ! Find the global norm from all blocks
-      call all_reduce_mpi_wrapper(norm_array(1), norm_array(2), 1, &
+      call all_reduce_mpi_wrapper(norm_array(1:4), norm_array(5:8), 4, &
          int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), comm)
 
-      ! Scale the norm depending on the number of grid points
-      norm_array(2) = norm_array(2) !* norm_scaling
+      ! Calculate ||u_new - u_old||/||u_new||
+      relative_u_norm = norm_array(5)/(norm_array(7)+1e-6)
 
-      ! Calculate the relative difference
-      call calculate_relative_difference(norm_array(3), norm_array(2), current_relative_norm)
+      ! Calculate ||r_new - r_old||/||r_new||
+      relative_r_norm = norm_array(6)/(norm_array(8)+1e-6)
 
-      if(current_relative_norm < tol) then
-         converged = 1 ! Indicate convergence
-      else if(current_relative_norm > previous_relative_norm + divergence_tol) then
-         converged = -1 ! Indicate divergence
+      if(relative_u_norm < tol .and. relative_r_norm < tol) then
+         converged = 1
+      else if(relative_u_norm > norm_array(9) + divergence_tol .or. &
+         relative_r_norm > norm_array(10) + divergence_tol .and. it > 5) then
+         converged = -1
       else
          converged = 0 ! Still converging
       end if
 
-      norm_array(3) = norm_array(2) ! Previous global norm = current global norm
-      norm_array(4) = current_relative_norm ! Relative norm
+      norm_array(9) = relative_u_norm ! Overwrite the previous relative u_norm
+      norm_array(10) = relative_r_norm ! Overwrite the previous relative r_norm
    end subroutine
+
+   !> Subroutine to decompose a matrix A into a lower triangular matrix L and an upper triangular matrix U (LU decomposition)
+   subroutine LU_decomposition(block_params)
+      type(block_type), intent(inout) :: block_params
+
+      integer :: num_equations, lda, info
+
+      num_equations = size(block_params%direct_solver_matrix_ptr_2D,1) ! N
+      lda = size(block_params%direct_solver_matrix_ptr_2D,1) ! LDA
+
+      info = 0
+
+      ! Perform LU decomposition
+      call DGETRF(num_equations, num_equations, block_params%direct_solver_matrix_ptr_2D, lda, block_params%ipiv, info)
+      if (info /= 0) then
+         print *, "DGETRF reported an error: ", info
+         stop
+      end if
+   end subroutine LU_decomposition
+
+   !> Subroutine to solve a system of linear equations using LU decomposition
+   subroutine solve_LU_system(block_params)
+      type(block_type), intent(inout) :: block_params
+
+      integer :: num_equations, num_rhs, lda, ldb, info
+
+      num_equations = size(block_params%direct_solver_matrix_ptr_2D,1) ! N
+      num_rhs = 1 ! NRHS
+      lda = size(block_params%direct_solver_matrix_ptr_2D,1) ! LDA
+      ldb = size(block_params%f_matrix_ptr,1) ! LDB
+
+      info = 0
+
+      ! Solve the system using the LU factors
+      call DGETRS('N', num_equations, num_rhs, block_params%direct_solver_matrix_ptr_2D, lda, block_params%ipiv, &
+         block_params%f_matrix_ptr, ldb, info)
+      if (info /= 0) then
+         print *, "DGETRS reported an error: ", info
+         stop
+      end if
+   end subroutine solve_LU_system
 
 end module solver_module

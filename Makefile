@@ -18,9 +18,9 @@ DEBUGFLAGS = -g -fbacktrace -ffpe-trap=zero,overflow,underflow,invalid -fbounds-
 
 # Release flags
 RELEASEFLAGS = -O3 -march=native -flto -funroll-loops
+
 # Verbose optimization flags
 VERBOSEFLAGS = -fopt-info-vec -fopt-info-loop -fopt-info-inline
-#VERBOSEFLAGS = -fopt-info-all
 
 # OpenMP flags
 OPENMPFLAGS = -fopenmp
@@ -35,7 +35,7 @@ IFLAGS = -J$(INC_DIR)/
 MFLAGS = -m64 -fPIC -fdefault-real-8 -fdefault-double-8 -fdefault-integer-8
 
 # Linker flags for linking
-LDFLAGS = -lm -lopenblas -lscalapack-openmpi $(OPENMPFLAGS) #$(SANITIZERFLAGS)
+LDFLAGS = -lm -lopenblas -lscalapack $(OPENMPFLAGS) #$(SANITIZERFLAGS)
 
 # Executable name
 EXEC = $(EXEC_DIR)/$(PROGNAME).out

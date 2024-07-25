@@ -10,7 +10,7 @@ module utility_functions_module
    public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
    public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
-   public :: calculate_dx, swap_pointers
+   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers
    public :: sleeper_function
 
 contains
@@ -379,6 +379,24 @@ contains
 
       dx = abs((domain_end - domain_begin) / (grid_size_with_ghosts - 1))
    end subroutine calculate_dx
+
+   !> Routine to calculate Courant-Friedrichs-Lewy (CFL) number
+   pure subroutine calculate_CFL(magnitude_velocity, dx, dt, CFL)
+      real, dimension(:), intent(in) :: magnitude_velocity, dx
+      real, intent(in) :: dt
+      real, intent(out) :: CFL
+
+      CFL = dt * sum(magnitude_velocity / dx)
+   end subroutine calculate_CFL
+
+   !> Routine to find dt from CFL number
+   pure subroutine calculate_dt_from_CFL(CFL, magnitude_velocity, dx, dt)
+      real, intent(in) :: CFL
+      real, dimension(:), intent(in) :: magnitude_velocity, dx
+      real, intent(out) :: dt
+
+      dt = CFL / sum(magnitude_velocity / dx)
+   end subroutine calculate_dt_from_CFL
 
    !> Subroutine to swap two pointers
    pure subroutine swap_pointers(ptr1, ptr2)

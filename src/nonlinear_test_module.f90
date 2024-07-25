@@ -119,7 +119,7 @@ contains
       !call sleeper_function(1)
 
       call create_block_type(ndims, num_data_elements(1), num_data_elements(1), domain_begin, domain_end, grid_size, comm_params, &
-         ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
+         ghost_begin, ghost_end, stencil_begin, stencil_end, 1, block_params)
 
       call create_finite_difference_stencils(block_params%ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 

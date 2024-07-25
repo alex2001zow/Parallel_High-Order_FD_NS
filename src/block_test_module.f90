@@ -47,7 +47,7 @@ contains
       !call sleeper_function(1)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
-         ghost_begin, ghost_end, stencil_begin, stencil_end, block_params)
+         ghost_begin, ghost_end, stencil_begin, stencil_end, 1, block_params)
 
       block_params%matrix_ptr = -1!rank
 

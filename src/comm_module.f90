@@ -108,9 +108,6 @@ contains
 
          num_nonzero = count(current_index /= 0)  ! Count the number of non-zero entries in current_index
 
-         !print *, "Coords: ", coords, "Current index: ", current_index, "Num nonzero: ", num_nonzero, &
-         !   "Rank: ", rank_of_coords, "Error: ", error
-
          ! error = 1 means no neighbor exists. We have true boundary.
          if(error == 1) then
             neighbors(global_index) = neighbor_non_existant_rank ! This is a non-existent rank. Should be replaced with a MPI_PROC_NULL. Do it in the constants module

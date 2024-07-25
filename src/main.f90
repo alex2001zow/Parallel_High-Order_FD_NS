@@ -35,8 +35,8 @@ subroutine run_simulation()
    ! Call the main simulation routine
    !call Poisson_main(rank, world_size)
    !call nonlinear_1D_test_main(rank, world_size)
-   !call Navier_Stokes_2D_main(rank, world_size)
-   call TravelingWave_Poisson_2D_main(rank, world_size)
+   call Navier_Stokes_2D_main(rank, world_size)
+   !call TravelingWave_Poisson_2D_main(rank, world_size)
    !call LinearStandingWave_3D_main(rank, world_size)
 
    !call solve_pde_with_scalapack(rank, world_size)

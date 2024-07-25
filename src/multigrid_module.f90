@@ -7,7 +7,7 @@ module multigrid_module
 
    private
 
-   public :: full_weighing_restriction_2D, bilinear_prolongation_2D
+   public :: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction_2D
 
 contains
 
@@ -56,9 +56,9 @@ contains
    end subroutine full_weighing_restriction_2D
 
    !> Bilinear prolongation operator for 2D problems
-   subroutine bilinear_prolongation_2D(fine_extended_dims, coarse_extended_dims, fine_solution, coarse_solution)
+   subroutine bilinear_prolongation_2D(fine_extended_dims, coarse_extended_dims, fine_residual, coarse_solution)
       integer, dimension(:), intent(in) :: fine_extended_dims, coarse_extended_dims
-      real, dimension(:,:), intent(out) :: fine_solution
+      real, dimension(:,:), intent(out) :: fine_residual
       real, dimension(:,:), intent(in) :: coarse_solution
 
       integer :: ii, jj
@@ -68,17 +68,17 @@ contains
       ! Initialize the fine solution with zeros if the entire array is not guaranteed to be filled.
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(fine_extended_dims, fine_solution) &
+      !$omp shared(fine_extended_dims, fine_residual) &
       !$omp private(ii, jj)
       do ii = 1, fine_extended_dims(2)
          do jj = 1, fine_extended_dims(1)
-            fine_solution(jj,ii) = 0.0
+            fine_residual(jj,ii) = 0.0
          end do
       end do
       !$omp end parallel do
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_solution) &
+      !$omp shared(coarse_extended_dims, fine_extended_dims, coarse_solution, fine_residual) &
       !$omp private(ii, jj, ci, cj, f00, f01, f10, f11)
       do ii = 1, coarse_extended_dims(2)-1
          do jj = 1, coarse_extended_dims(1)-1
@@ -90,19 +90,19 @@ contains
             f01 = coarse_solution(jj, ii+1) ! f(j,i+1)
             f11 = coarse_solution(jj+1, ii+1) ! f(j+1,i+1)
 
-            fine_solution(cj, ci) = (f00 + f10 + f01 + f11) / 4.0
-            fine_solution(cj-1, ci) = (f00 + f10) / 2.0
-            fine_solution(cj, ci-1) = (f00 + f01) / 2.0
-            fine_solution(cj-1, ci-1) = f00
+            fine_residual(cj, ci) = (f00 + f10 + f01 + f11) / 4.0
+            fine_residual(cj-1, ci) = (f00 + f10) / 2.0
+            fine_residual(cj, ci-1) = (f00 + f01) / 2.0
+            fine_residual(cj-1, ci-1) = f00
 
             if(ci == fine_extended_dims(2)-1) then
-               fine_solution(cj, ci+1) = (f01 + f11) / 2.0
-               fine_solution(cj-1, ci+1) = f01
+               fine_residual(cj, ci+1) = (f01 + f11) / 2.0
+               fine_residual(cj-1, ci+1) = f01
             end if
 
             if(cj == fine_extended_dims(1)-1) then
-               fine_solution(cj+1, ci) = (f10 + f11) / 2.0
-               fine_solution(cj+1, ci-1) = f10
+               fine_residual(cj+1, ci) = (f10 + f11) / 2.0
+               fine_residual(cj+1, ci-1) = f10
             end if
 
          end do
@@ -110,5 +110,25 @@ contains
       !$omp end parallel do
 
    end subroutine bilinear_prolongation_2D
+
+   !> Subroutine to apply the error correction to the solution
+   subroutine apply_correction_2D(fine_extended_dims, fine_solution, correction)
+      integer, dimension(:), intent(in) :: fine_extended_dims
+      real, dimension(:,:), intent(inout) :: fine_solution
+      real, dimension(:,:), intent(in) :: correction ! Stored in the residual array
+
+      integer :: fi, fj
+
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(fine_extended_dims, fine_solution, correction) &
+      !$omp private(fi, fj)
+      do fi = 1, fine_extended_dims(2)
+         do fj = 1, fine_extended_dims(1)
+            fine_solution(fj,fi) = fine_solution(fj,fi) + correction(fj,fi)
+         end do
+      end do
+      !$omp end parallel do
+
+   end subroutine apply_correction_2D
 
 end module multigrid_module
