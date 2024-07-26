@@ -7,8 +7,8 @@ module test_Poisson_module
       print_cart_comm_type
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, apply_FDstencil, update_value_from_stencil, &
-      calculate_scaled_coefficients, apply_FDstencil_2D, update_value_from_stencil_2D, set_2D_matrix_coefficients, &
-      get_coefficients_wrapper
+      calculate_scaled_coefficients, apply_FDstencil_2D, update_value_from_stencil_2D, &
+      get_coefficients_wrapper, set_matrix_coefficients
    use block_module, only: block_type, create_block_type, deallocate_block_type, sendrecv_data_neighbors, print_block_type
    use functions_module, only: FunctionPair, set_function_pointers, calculate_point
 
@@ -33,7 +33,7 @@ module test_Poisson_module
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [pi,pi]
-   integer, dimension(ndims), parameter :: stencil_sizes = 7
+   integer, dimension(ndims), parameter :: stencil_sizes = 5
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
@@ -43,7 +43,7 @@ module test_Poisson_module
    real :: t_steps, dt
 
    !> Solver parameters
-   integer, parameter :: direct_or_iterative = 1, Jacobi_or_GS = 1
+   integer, parameter :: direct_or_iterative = 0, Jacobi_or_GS = 1
    real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
    integer, parameter :: max_iter = 10000 * (2.0 - omega), multigrid_max_level = 2
    type(SolverParamsType) :: solver_params
@@ -576,14 +576,12 @@ contains
       integer, dimension(ndims) :: local_indices, alpha, beta
       real, contiguous, dimension(:), pointer :: coefficients, dxx, dyy
       real, dimension(product(FDstencil_params%stencil_sizes)), target :: combined_stencils
-      real, contiguous, dimension(:,:), pointer :: combined_stencils_2D
 
       call calculate_scaled_coefficients(block_params%ndims, block_params%extended_grid_dx, FDstencil_params)
 
       !$omp parallel do collapse(2) default(none) &
       !$omp shared(block_params, FDstencil_params) &
-      !$omp private(ii, jj, local_indices, alpha, beta, coefficients, dxx, dyy, combined_stencils, &
-      !$omp combined_stencils_2D)
+      !$omp private(ii, jj, local_indices, alpha, beta, coefficients, dxx, dyy, combined_stencils)
       do ii = block_params%extended_block_begin_c(2)+1, block_params%extended_block_end_c(2)
          do jj = block_params%extended_block_begin_c(1)+1, block_params%extended_block_end_c(1)
             local_indices = [jj,ii]
@@ -596,10 +594,8 @@ contains
 
             combined_stencils = dxx + dyy
 
-            call reshape_real_1D_to_2D(FDstencil_params%stencil_sizes, combined_stencils, combined_stencils_2D)
-
-            call set_2D_matrix_coefficients(block_params%extended_block_dims, combined_stencils_2D, &
-               block_params%direct_solver_matrix_ptr_2D, local_indices, alpha, beta)
+            call set_matrix_coefficients(block_params%ndims, FDstencil_params%stencil_sizes, block_params%extended_block_dims, &
+               combined_stencils, block_params%direct_solver_matrix_ptr_2D, local_indices, alpha, beta)
 
          end do
       end do
@@ -630,12 +626,12 @@ contains
 
             call u_analytical_poisson(block_params%ndims, point, current_time, u_val)
 
-            diag = local_indices(1) + (local_indices(2) - 1) * block_params%extended_block_dims(1)
+            call IDX_XD(block_params%ndims, block_params%extended_block_dims, local_indices, diag)
 
             ! At the boundaries of the domain
             if(ii == 1 .or. ii == block_params%extended_block_dims(2) .or. &
                jj == 1 .or. jj == block_params%extended_block_dims(1)) then
-               block_params%direct_solver_matrix_ptr_2D(diag,:) = 0.0 ! Diag in the first column?
+               block_params%direct_solver_matrix_ptr_2D(diag,:) = 0.0
                block_params%direct_solver_matrix_ptr_2D(diag,diag) = 1.0
             end if
 

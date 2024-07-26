@@ -15,7 +15,7 @@ module FD_module
    public :: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil
    public :: apply_FDstencil, apply_FDstencil_1D, apply_FDstencil_2D, update_value_from_stencil, update_value_from_stencil_2D, &
-      set_2D_matrix_coefficients
+      set_matrix_coefficients
    public :: determine_alpha, alpha_2_global, global_2_start_end, get_FD_coefficients_from_index, get_coefficients_wrapper
    public :: calculate_scaled_coefficients
 
@@ -328,29 +328,28 @@ contains
 
    end subroutine update_value_from_stencil_2D
 
-   !> Set a 2D-matrix to the stencil coefficients
-   pure subroutine set_2D_matrix_coefficients(matrix_extended_dims, stencil_2D, matrix_2D, indices, alpha, beta)
-      integer, dimension(:), intent(in) :: matrix_extended_dims
-      real, dimension(:,:), intent(in) :: stencil_2D
-      real, dimension(:,:), intent(inout) :: matrix_2D
+   !> Set a matrix to the stencil coefficients using a global index for all use cases.
+   pure subroutine set_matrix_coefficients(ndims, stencil_dims, matrix_dims, stencil, coefficient_matrix, indices, alpha, beta)
+      integer, intent(in) :: ndims
+      integer, dimension(:), intent(in) :: stencil_dims, matrix_dims
+      real, dimension(:), intent(in) :: stencil
+      real, dimension(:,:), intent(inout) :: coefficient_matrix
       integer, dimension(:), intent(in) :: indices, alpha, beta
 
-      integer :: diag, ii, jj, matrix_ii, matrix_jj, matrix_global_index
+      integer :: diag, ii, matrix_global_index
+      integer, dimension(ndims) :: stencil_indices
 
-      ! Calculate the diagonal index in the coefficient matrix corresponds to (jj,ii) in the grid.
-      diag = indices(1) + (indices(2) - 1) * matrix_extended_dims(1)
+      ! Calculate the diagonal/global index in the coefficient matrix
+      call IDX_XD(ndims, matrix_dims, indices, diag)
 
-      do concurrent(jj = 1:size(stencil_2D, 1), ii = 1:size(stencil_2D, 2))
-         matrix_ii = indices(2) - (alpha(2) + 1) + ii
-         matrix_jj = indices(1) - (alpha(1) + 1) + jj
+      do concurrent(ii = 1:size(stencil))
+         call IDX_XD_INV(ndims, stencil_dims, ii, stencil_indices)
+         call IDX_XD(ndims, matrix_dims, indices - (alpha + 1) + stencil_indices, matrix_global_index)
 
-         ! Calculate the corresponding global index.
-         matrix_global_index = matrix_jj + (matrix_ii-1) * matrix_extended_dims(1)
-
-         ! We have an issue here. Need to figure out which elements in the coefficient matrix should be written by the stencil.
-         matrix_2D(diag, matrix_global_index) = stencil_2D(jj, ii) ! Has to be diag then matrix_global_index??
+         coefficient_matrix(diag, matrix_global_index) = stencil(ii) ! Has to be diag then matrix_global_index.
       end do
-   end subroutine set_2D_matrix_coefficients
+
+   end subroutine set_matrix_coefficients
 
    !> Determine alpha and beta from a matrix index.
    pure subroutine determine_alpha(ndims, stencil_sizes, matrix_begin, matrix_end, matrix_index, alpha, beta)
@@ -445,7 +444,7 @@ contains
    end subroutine get_coefficients_wrapper
 
    !> Routine to scale the finite difference coefficients depending on the grid spacing(dx)
-   pure subroutine calculate_scaled_coefficients(ndims, dx, FDstencil_type_input)
+   subroutine calculate_scaled_coefficients(ndims, dx, FDstencil_type_input)
       integer, intent(in) :: ndims
       real, dimension(:), intent(in) :: dx
       type(FDstencil_type), target, intent(inout) :: FDstencil_type_input
@@ -465,7 +464,11 @@ contains
 
       num_stencil_elements = product(FDstencil_type_input%stencil_sizes)
 
-      ! Maybe parallelize this loop
+      !$omp parallel do default(none) &
+      !$omp shared(FDstencil_type_input, dx, ndims, num_stencil_elements, ptr_org, ptr_scaled) &
+      !$omp private(global_index, start_index, end_index, alphas, betas, derivative_global_index, &
+      !$omp derivative_start_index, derivative_end_index, derivative, scale, &
+      !$omp coefficient_start_index, coefficient_end_index)
       do global_index = 1, FDstencil_type_input%combination_of_stencil_sizes
          call global_2_alpha_beta(ndims, FDstencil_type_input%stencil_sizes, global_index, alphas, betas)
          call global_2_start_end(ndims, FDstencil_type_input%num_derivatives, FDstencil_type_input%stencil_sizes, global_index, &
@@ -485,6 +488,8 @@ contains
                ptr_org(start_index+coefficient_start_index:start_index+coefficient_end_index) / scale
          end do
       end do
+
+      !$omp end parallel do
 
    end subroutine calculate_scaled_coefficients
 

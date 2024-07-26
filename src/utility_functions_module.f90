@@ -10,7 +10,7 @@ module utility_functions_module
    public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
    public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
-   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D
+   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D, copy_1D_array
    public :: sleeper_function
 
 contains
@@ -417,6 +417,19 @@ contains
       ptr1 => ptr2
       ptr2 => temp_ptr
    end subroutine swap_pointers_2D
+
+   !> Subroutine to copy a 1D array to another 1D array
+   subroutine copy_1D_array(source, destination)
+      real, dimension(:), intent(in) :: source
+      real, dimension(:), intent(out) :: destination
+
+      integer :: ii
+
+      !$omp parallel do default(none) shared(source, destination) private(ii)
+      do ii = 1, size(source)
+         destination(ii) = source(ii)
+      end do
+   end subroutine copy_1D_array
 
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
    subroutine sleeper_function(sleep_time)
