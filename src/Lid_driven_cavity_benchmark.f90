@@ -26,7 +26,7 @@ module Lid_driven_cavity_benchmark_module
    integer, dimension(ndims*num_derivatives), parameter :: derivatives = [1,0,0,1,2,0,0,2] ! dy, dx, dyy, dxx
 
    ! Grid parameters
-   integer, dimension(ndims) :: grid_size = [42,42], processor_dims = [1,1]
+   integer, dimension(ndims) :: grid_size = [128,128], processor_dims = [1,1]
    logical, dimension(ndims) :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims) :: domain_begin = [0,0], domain_end = [1,1]
@@ -36,13 +36,14 @@ module Lid_driven_cavity_benchmark_module
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    ! Solver parameters
-   integer, parameter :: direct_or_iterative = 1, Jacobi_or_GS = 1, omega = 1.0
+   integer, parameter :: direct_or_iterative = 0, Jacobi_or_GS = 1, omega = 1.0
    integer, parameter :: N_iterations = 500
    integer, parameter :: N_Pressure_Poisson_iterations = 50
    real, parameter :: Pressure_Poisson_tol = 1e-6, Pressure_Poisson_div_tol = 1e-1
 
    ! Physical parameters
    real, parameter :: rho = 1.0, nu = 0.1, system_u_lid = 1.0
+   real :: dt = 0.0001
    real, dimension(ndims), parameter :: F = [0.0, 0.0]
 
    public :: Lid_driven_cavity_benchmark_2D
@@ -56,15 +57,14 @@ contains
       type(SolverParamsType):: solver
       type(comm_type) :: comm
       type(FDstencil_type) :: FDstencil
-      type(block_type) :: u1_block, v1_block, p1_block, &
-         u2_block, v2_block, p2_block, &
-         u3_block, v3_block, p3_block, &
-         u4_block, v4_block, p4_block
+      type(block_type) :: u1_block, v1_block, p_block, &
+         u2_block, v2_block, &
+         u3_block, v3_block, &
+         u4_block, v4_block
       type(ResultType) :: result
 
       integer :: ii, iounit
       real, dimension(4) :: result_array_with_timings
-      real :: dt
 
       call set_SolverParamsType(Pressure_Poisson_tol, Pressure_Poisson_div_tol, N_Pressure_Poisson_iterations, Jacobi_or_GS, &
          solver)
@@ -75,49 +75,45 @@ contains
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, u1_block)
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v1_block)
-      call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p1_block)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, u2_block)
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v2_block)
-      call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p2_block)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, u3_block)
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v3_block)
-      call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p3_block)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, u4_block)
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v4_block)
+
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p4_block)
+         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p_block)
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil)
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
 
-      dt = 0.001
-
       if(direct_or_iterative == 1) then
          ! Run the solver
          do ii = 1, N_iterations
-            call RK4(dt, comm, u1_block, v1_block, p1_block, &
-               u2_block, v2_block, p2_block, &
-               u3_block, v3_block, p3_block, &
-               u4_block, v4_block, p4_block, &
+            call RK4(dt, comm, p_block, &
+               u1_block, v1_block, &
+               u2_block, v2_block, &
+               u3_block, v3_block, &
+               u4_block, v4_block, &
                FDstencil, solver, result)
+
             if(rank == MASTER_RANK) then
                print*, "Iteration: ", ii, "/", N_iterations
                call print_resultType(result)
             end if
+
             if(result%converged == -1) then
                exit
             end if
@@ -125,18 +121,23 @@ contains
          end do
       else
          !> Assemble the matrix A
-         call assemble_matrix_2D(p1_block, FDstencil)
+         call assemble_matrix_2D(p_block, FDstencil)
 
          ! Apply the matrix boundary conditions before decomposing the matrix
-         call write_matrix_bc_2D(p1_block, FDstencil)
+         call write_matrix_bc_2D(p_block, FDstencil)
 
          !> Decompose the matrix A into LU
-         call LU_decomposition(p1_block)
+         call LU_decomposition(p_block%direct_solver_matrix_ptr_2D, p_block%ipiv)
 
-         !> Write the initial condition to the system which is just zero
-
+         ! Run the solver
          do ii = 1, N_iterations
-            call one_timestep_2D(dt, 1.0, comm, u1_block, v1_block, p1_block, FDstencil, solver, result)
+            call RK4(dt, comm, p_block, &
+               u1_block, v1_block, &
+               u2_block, v2_block, &
+               u3_block, v3_block, &
+               u4_block, v4_block, &
+               FDstencil, solver, result)
+
             if(rank == MASTER_RANK) then
                print*, "Iteration: ", ii, "/", N_iterations
                call print_resultType(result)
@@ -173,49 +174,49 @@ contains
       if(direct_or_iterative == 1) then
          call write_block_data_to_file(u1_block%data_layout, "output/u_solution.dat", comm%comm, u1_block%matrix)
          call write_block_data_to_file(v1_block%data_layout, "output/v_solution.dat", comm%comm, v1_block%matrix)
-         call write_block_data_to_file(p1_block%data_layout, "output/p_solution.dat", comm%comm, p1_block%matrix)
+         call write_block_data_to_file(p_block%data_layout, "output/p_solution.dat", comm%comm, p_block%matrix)
       else
          call write_block_data_to_file(u1_block%data_layout, "output/u_solution.dat", comm%comm, u1_block%matrix)
          call write_block_data_to_file(v1_block%data_layout, "output/v_solution.dat", comm%comm, v1_block%matrix)
-         call write_block_data_to_file(p1_block%data_layout, "output/p_solution.dat", comm%comm, p1_block%matrix)
+         call write_block_data_to_file(p_block%data_layout, "output/p_solution.dat", comm%comm, p_block%matrix)
       end if
 
       ! Deallocate data
 
       call deallocate_cart_comm_type(comm)
 
+      call deallocate_block_type(p_block)
+
       call deallocate_block_type(u1_block)
       call deallocate_block_type(v1_block)
-      call deallocate_block_type(p1_block)
 
       call deallocate_block_type(u2_block)
       call deallocate_block_type(v2_block)
-      call deallocate_block_type(p2_block)
 
       call deallocate_block_type(u3_block)
       call deallocate_block_type(v3_block)
-      call deallocate_block_type(p3_block)
 
       call deallocate_block_type(u4_block)
       call deallocate_block_type(v4_block)
-      call deallocate_block_type(p4_block)
 
       call deallocate_finite_difference_stencil(FDstencil)
 
    end subroutine Lid_driven_cavity_benchmark_2D
 
    !> Subroutine to timestep using the RK4-method
-   subroutine RK4(dt, comm, u1_block, v1_block, p1_block, &
-      u2_block, v2_block, p2_block, &
-      u3_block, v3_block, p3_block, &
-      u4_block, v4_block, p4_block, &
+   subroutine RK4(dt, comm, p_block, &
+      u1_block, v1_block, &
+      u2_block, v2_block, &
+      u3_block, v3_block, &
+      u4_block, v4_block, &
       FDstencil, solver, result)
       real, intent(in) :: dt
       type(comm_type), intent(in) :: comm
-      type(block_type), intent(inout) :: u1_block, v1_block, p1_block, &
-         u2_block, v2_block, p2_block, &
-         u3_block, v3_block, p3_block, &
-         u4_block, v4_block, p4_block
+      type(block_type), intent(inout) :: p_block, &
+         u1_block, v1_block, &
+         u2_block, v2_block, &
+         u3_block, v3_block, &
+         u4_block, v4_block
       type(FDstencil_type), target, intent(inout) :: FDstencil
       type(SolverParamsType), intent(in) :: solver
       type(ResultType), intent(out) :: result
@@ -226,45 +227,64 @@ contains
       !> RK4 combination coefficients
       real, parameter :: RK1_coef = 1.0/6.0, RK2_coef = 1.0/3.0, RK3_coef = 1.0/3.0, RK4_coef = 1.0/6.0
 
-      !> RK4 step 1 is just the current state
-      ! Do nothing
+      ! Use the RK4 method to find the intermediate velocity fields only!
+      ! f_matrix_ptr is the rhs found from the intermediate velocity fields
+
+      !> RK4 step 1
+      call calculate_intermediate_velocity_2D(u1_block, v1_block, FDstencil)
+      u1_block%f_matrix_ptr = dt * u1_block%f_matrix_ptr ! uk1 = dt * rhs(u1)
+      v1_block%f_matrix_ptr = dt * v1_block%f_matrix_ptr ! vk1 = dt * rhs(v1)
+      u2_block%matrix_ptr = u1_block%matrix_ptr + RK2_time * u1_block%f_matrix_ptr ! u2 = u1 + 1/2 * uk1
+      v2_block%matrix_ptr = v1_block%matrix_ptr + RK2_time * v1_block%f_matrix_ptr ! v2 = v1 + 1/2 * vk1
+      call project_velocity(dt*RK2_time, comm, u2_block, v2_block, p_block, FDstencil, solver, result)
 
       !> RK4 step 2
-      call one_timestep_2D(dt, RK2_time, comm, u2_block, v2_block, p2_block, FDstencil, solver, result)
+      call calculate_intermediate_velocity_2D(u2_block, v2_block, FDstencil)
+      u2_block%f_matrix_ptr = dt * u2_block%f_matrix_ptr ! uk2 = dt * rhs(u2)
+      v2_block%f_matrix_ptr = dt * v2_block%f_matrix_ptr ! vk2 = dt * rhs(v2)
+      u3_block%matrix_ptr = u1_block%matrix_ptr + RK3_time * u2_block%f_matrix_ptr ! u3 = u1 + 1/2 * uk2
+      v3_block%matrix_ptr = v1_block%matrix_ptr + RK3_time * v2_block%f_matrix_ptr ! v3 = v1 + 1/2 * vk2
+      call project_velocity(dt*RK3_time, comm, u3_block, v3_block, p_block, FDstencil, solver, result)
 
       !> RK4 step 3
-      call one_timestep_2D(dt, RK3_time, comm, u3_block, v3_block, p3_block, FDstencil, solver, result)
+      call calculate_intermediate_velocity_2D(u3_block, v3_block, FDstencil)
+      u3_block%f_matrix_ptr = dt * u3_block%f_matrix_ptr ! uk3 = dt * rhs(u3)
+      v3_block%f_matrix_ptr = dt * v3_block%f_matrix_ptr ! vk3 = dt * rhs(v3)
+      u4_block%matrix_ptr = u1_block%matrix_ptr + RK4_time * u3_block%f_matrix_ptr ! u4 = u1 + 1 * uk3
+      v4_block%matrix_ptr = v1_block%matrix_ptr + RK4_time * v3_block%f_matrix_ptr ! v4 = v1 + 1 * vk3
+      call project_velocity(dt*RK4_time, comm, u4_block, v4_block, p_block, FDstencil, solver, result)
 
       !> RK4 step 4
-      call one_timestep_2D(dt, RK4_time, comm, u4_block, v4_block, p4_block, FDstencil, solver, result)
+      call calculate_intermediate_velocity_2D(u4_block, v4_block, FDstencil)
+      u4_block%f_matrix_ptr = dt * u4_block%f_matrix_ptr ! uk4 = dt * rhs(u4)
+      v4_block%f_matrix_ptr = dt * v4_block%f_matrix_ptr ! vk4 = dt * rhs(v4)
 
       !> Combine the results
-      u1_block%matrix_ptr = u1_block%matrix_ptr*RK1_coef + u2_block%matrix_ptr*RK2_coef + &
-         u3_block%matrix_ptr*RK3_coef + u4_block%matrix_ptr*RK4_coef
+      ! u_intermediate = u1 + 1/6 * (uk1 + 2*uk2 + 2*uk3 + uk4)
+      u1_block%matrix_ptr = u1_block%matrix_ptr + (RK1_coef * u1_block%f_matrix_ptr + &
+         RK2_coef * u2_block%f_matrix_ptr + RK3_coef * u3_block%f_matrix_ptr + RK4_coef * u4_block%f_matrix_ptr)
 
-      v1_block%matrix_ptr = v1_block%matrix_ptr*RK1_coef + v2_block%matrix_ptr*RK2_coef + &
-         v3_block%matrix_ptr*RK3_coef + v4_block%matrix_ptr*RK4_coef
+      ! v_intermediate = v1 + 1/6 * (vk1 + 2*vk2 + 2*vk3 + vk4)
+      v1_block%matrix_ptr = v1_block%matrix_ptr + (RK1_coef * v1_block%f_matrix_ptr + &
+         RK2_coef * v2_block%f_matrix_ptr + RK3_coef * v3_block%f_matrix_ptr + RK4_coef * v4_block%f_matrix_ptr)
 
-      p1_block%matrix_ptr = p1_block%matrix_ptr*RK1_coef + p2_block%matrix_ptr*RK2_coef + &
-         p3_block%matrix_ptr*RK3_coef + p4_block%matrix_ptr*RK4_coef
+      !> Solve the Navier-Stokes in 2D using the projection method
+      call project_velocity(dt, comm, u1_block, v1_block, p_block, FDstencil, solver, result)
 
    end subroutine RK4
 
    ! Solve the Navier-Stokes in 2D using the fractional step method.
-   subroutine one_timestep_2D(dt, RK_coef, comm, u_block, v_block, p_block, FDstencil, solver, result)
-      real, intent(in) :: dt, RK_coef
+   subroutine project_velocity(dt, comm, u_block, v_block, p_block, FDstencil, solver, result)
+      real, intent(in) :: dt
       type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: u_block, v_block, p_block
       type(FDstencil_type), target, intent(inout) :: FDstencil
       type(SolverParamsType), intent(in) :: solver
       type(ResultType), intent(out) :: result
 
-      ! Calculate intermediate velocity fields
-      call calculate_intermediate_velocity_2D(dt, RK_coef, u_block, v_block, FDstencil)
-
       !> Write out the boundary conditions on the velocity fields
       call write_velocity_BC_2D(u_block%extended_block_begin_c, u_block%extended_block_end_c, &
-         u_block%f_matrix_ptr_2D, v_block%f_matrix_ptr_2D)
+         u_block%matrix_ptr_2D, v_block%matrix_ptr_2D)
 
       ! Calculate velocity divergence
       call calculate_velocity_divergence_2D(dt, u_block, v_block, p_block, FDstencil)
@@ -277,7 +297,7 @@ contains
          p_block%f_matrix_ptr_2D(:,p_block%extended_block_end_c(2)) = 0.0
          p_block%f_matrix_ptr_2D(1,:) = 0.0
          p_block%f_matrix_ptr_2D(p_block%extended_block_end_c(1),:) = 0.0
-         call solve_LU_system(p_block)
+         call solve_LU_system(p_block%direct_solver_matrix_ptr_2D, p_block%f_matrix_ptr, p_block%ipiv)
          call copy_1D_array(p_block%f_matrix_ptr, p_block%matrix_ptr)
       end if
 
@@ -288,7 +308,7 @@ contains
       call write_velocity_BC_2D(u_block%extended_block_begin_c, u_block%extended_block_end_c, &
          u_block%matrix_ptr_2D, v_block%matrix_ptr_2D)
 
-   end subroutine one_timestep_2D
+   end subroutine project_velocity
 
    ! Write the lid cavity boundary conditions on the velocity fields.
    subroutine write_velocity_BC_2D(extended_begin_c, extended_end_c, u_matrix, v_matrix)
@@ -367,8 +387,7 @@ contains
    end subroutine write_pressure_BC_2D
 
    ! Calculate rhs for the 2D Navier-Stokes equation
-   subroutine calculate_intermediate_velocity_2D(dt, RK_coef, u_block, v_block, FDstencil)
-      real, intent(in) :: dt, RK_coef
+   subroutine calculate_intermediate_velocity_2D(u_block, v_block, FDstencil)
       type(block_type), intent(inout) :: u_block, v_block
       type(FDstencil_type), target, intent(inout) :: FDstencil
 
@@ -382,7 +401,7 @@ contains
       call calculate_scaled_coefficients(u_block%ndims, u_block%extended_grid_dx, FDstencil)
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(dt, RK_coef, u_block, v_block, FDstencil) &
+      !$omp shared(u_block, v_block, FDstencil) &
       !$omp private(ii, jj, uv_local_indices, u, v, u_rhs, v_rhs, coefficients, alpha, beta, dx, dy, dxx, dyy, combined_stencil, &
       !$omp dx_2D, dy_2D, dxx_2D, dyy_2D, combined_stencil_2D)
       do jj = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
@@ -408,12 +427,8 @@ contains
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencil, combined_stencil_2D)
             call apply_FDstencil_2D(combined_stencil_2D, v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, v_rhs)
 
-            ! Euler time step
-            u_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = &
-               u_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) + RK_coef * dt * u_rhs
-
-            v_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = &
-               v_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) + RK_coef * dt * v_rhs
+            u_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = u_rhs
+            v_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = v_rhs
 
          end do
       end do
@@ -422,7 +437,7 @@ contains
 
    end subroutine calculate_intermediate_velocity_2D
 
-   ! Calculate velocity divergence
+   !> Calculate velocity divergence
    subroutine calculate_velocity_divergence_2D(dt, u_block, v_block, p_block, FDstencil)
       real, intent(in) :: dt
       type(block_type), intent(inout) :: u_block, v_block, p_block
@@ -453,8 +468,8 @@ contains
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dx, dx_2D)
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, dy, dy_2D)
 
-            call apply_FDstencil_2D(dx_2D, v_block%f_matrix_ptr_2D, uv_local_indices, alpha, beta, u_x)
-            call apply_FDstencil_2D(dy_2D, u_block%f_matrix_ptr_2D, uv_local_indices, alpha, beta, v_y)
+            call apply_FDstencil_2D(dx_2D, v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, u_x) ! Why is v and u switched here???
+            call apply_FDstencil_2D(dy_2D, u_block%matrix_ptr_2D, uv_local_indices, alpha, beta, v_y)
 
             p_block%f_matrix_ptr_2D(p_local_indices(1), p_local_indices(2)) = (rho/dt) * (u_x + v_y)
 
@@ -577,9 +592,9 @@ contains
             call apply_FDstencil_2D(dy_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, p_y)
 
             v_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = &
-               v_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2))  - (dt/rho) * p_x
+               v_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2))  - (dt/rho) * p_x
             u_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2))  = &
-               u_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2))  - (dt/rho) * p_y
+               u_block%matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2))  - (dt/rho) * p_y
 
          end do
       end do

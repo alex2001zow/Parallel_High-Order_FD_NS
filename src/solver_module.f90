@@ -308,18 +308,19 @@ contains
    end subroutine
 
    !> Subroutine to decompose a matrix A into a lower triangular matrix L and an upper triangular matrix U (LU decomposition)
-   subroutine LU_decomposition(block_params)
-      type(block_type), intent(inout) :: block_params
+   subroutine LU_decomposition(A, ipiv)
+      real, dimension(:,:), intent(inout) :: A
+      integer, dimension(:), intent(out) :: ipiv
 
       integer :: num_equations, lda, info
 
-      num_equations = size(block_params%direct_solver_matrix_ptr_2D,1) ! N
-      lda = size(block_params%direct_solver_matrix_ptr_2D,1) ! LDA
+      num_equations = size(A,1) ! N
+      lda = size(A,1) ! LDA
 
       info = 0
 
       ! Perform LU decomposition
-      call DGETRF(num_equations, num_equations, block_params%direct_solver_matrix_ptr_2D, lda, block_params%ipiv, info)
+      call DGETRF(num_equations, num_equations, A, lda, ipiv, info)
       if (info /= 0) then
          print *, "DGETRF reported an error: ", info
          stop
@@ -327,21 +328,22 @@ contains
    end subroutine LU_decomposition
 
    !> Subroutine to solve a system of linear equations using LU decomposition
-   subroutine solve_LU_system(block_params)
-      type(block_type), intent(inout) :: block_params
+   subroutine solve_LU_system(A,b,ipiv)
+      real, dimension(:,:), intent(in) :: A
+      real, dimension(:), intent(inout) :: b
+      integer, dimension(:), intent(in) :: ipiv
 
       integer :: num_equations, num_rhs, lda, ldb, info
 
-      num_equations = size(block_params%direct_solver_matrix_ptr_2D,1) ! N
+      num_equations = size(A,1) ! N
       num_rhs = 1 ! NRHS
-      lda = size(block_params%direct_solver_matrix_ptr_2D,1) ! LDA
-      ldb = size(block_params%f_matrix_ptr,1) ! LDB
+      lda = size(A,1) ! LDA
+      ldb = size(b,1) ! LDB
 
       info = 0
 
       ! Solve the system using the LU factors
-      call DGETRS('N', num_equations, num_rhs, block_params%direct_solver_matrix_ptr_2D, lda, block_params%ipiv, &
-         block_params%f_matrix_ptr, ldb, info)
+      call DGETRS('N', num_equations, num_rhs, A, lda, ipiv, b, ldb, info)
       if (info /= 0) then
          print *, "DGETRS reported an error: ", info
          stop

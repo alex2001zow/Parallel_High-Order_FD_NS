@@ -33,7 +33,7 @@ module test_Poisson_module
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [pi,pi]
-   integer, dimension(ndims), parameter :: stencil_sizes = 5
+   integer, dimension(ndims), parameter :: stencil_sizes = 9
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
@@ -102,7 +102,7 @@ contains
          call write_matrix_dirichlet_bc(block_params)
 
          !> Decompose the matrix A into LU
-         call LU_decomposition(block_params)
+         call LU_decomposition(block_params%direct_solver_matrix_ptr_2D,block_params%ipiv)
 
          !> Write the initial condition to the system
          call write_solution_2D(block_params, t_0)
@@ -189,7 +189,7 @@ contains
          call write_rhs_dirichlet_bc(block_params)
 
          !> Solve the linear system using the LU decomposition
-         call solve_LU_system(block_params)
+         call solve_LU_system(block_params%direct_solver_matrix_ptr_2D, block_params%f_matrix_ptr, block_params%ipiv)
 
          block_params%new_matrix_ptr_2D = block_params%new_matrix_ptr_2D + (dt/-2.0) * block_params%f_matrix_ptr_2D
       end if
