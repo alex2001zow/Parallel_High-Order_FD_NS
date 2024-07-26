@@ -44,16 +44,16 @@ module TravellingWave_2D_module
    logical, dimension(ndims_2D), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims_2D), parameter :: domain_begin = [0.0,0.0], domain_end = [Ls,Lx]
-   integer, dimension(ndims_2D), parameter :: stencil_sizes = 7
+   integer, dimension(ndims_2D), parameter :: stencil_sizes = 3
    integer, dimension(ndims_2D), parameter :: uv_ghost_begin = [0,0], uv_ghost_end = [0,0]
    integer, dimension(ndims_2D), parameter :: p_ghost_begin = [1,1], p_ghost_end = [1,1]
    integer, dimension(ndims_2D), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
 
    !> Multigrid solver parameters
-   integer, parameter:: direct_or_iterative = 1, Jacobi_or_GS = 1
-   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
-   integer, parameter :: max_iter = 100000 * (1.0 + 1.0 - omega), multigrid_max_level = 1
+   integer, parameter:: direct_or_iterative = 1, Jacobi_or_GS = 2
+   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 1.0
+   integer, parameter :: max_iter = 10000 * (1.0 + 1.0 - omega), multigrid_max_level = 1
 
    public :: TravelingWave_Poisson_2D_main
 
@@ -78,16 +78,16 @@ contains
       call set_SolverParamsType(tol, div_tol, max_iter, Jacobi_or_GS, solver_params)
 
       ! Create 1D and 2D cartesian communicators
-      call create_cart_comm_type(1, processor_dims(2:2), periods(2:2), reorder, rank, world_size, comm_1D_params)
+      call create_cart_comm_type(1, processor_dims(1:1), periods(1:1), reorder, rank, world_size, comm_1D_params) ! DOUBLE CHECK WHICH DIMENSION IS WHICH!!!!
       call create_cart_comm_type(2, processor_dims, periods, reorder, rank, world_size, comm_2D_params)
 
       ! Create the finite difference stencils for 1D and 2D
-      call create_finite_difference_stencils(1, num_derivatives_1D, derivatives_1D, stencil_sizes(2:2), FDstencil_1D_params)
+      call create_finite_difference_stencils(1, num_derivatives_1D, derivatives_1D, stencil_sizes(1:1), FDstencil_1D_params) ! DOUBLE CHECK WHICH DIMENSION IS WHICH!!!!
       call create_finite_difference_stencils(2, num_derivatives_2D, derivatives_2D, stencil_sizes, FDstencil_2D_params)
 
       ! Create the eta block which is the surface elevation and is 1D
-      call create_block_type(1,1,1, domain_begin(2:2), domain_end(2:2), grid_size(2:2), comm_1D_params, &
-         uv_ghost_begin(2:2), uv_ghost_end(2:2), stencil_begin(2:2), stencil_end(2:2), 1, eta_params)
+      call create_block_type(1,1,1, domain_begin(1:1), domain_end(1:1), grid_size(1:1), comm_1D_params, & ! DOUBLE CHECK WHICH DIMENSION IS WHICH!!!!
+         uv_ghost_begin(1:1), uv_ghost_end(1:1), stencil_begin(1:1), stencil_end(1:1), 1, eta_params) ! DOUBLE CHECK WHICH DIMENSION IS WHICH!!!!
 
       ! Create the u, v and p blocks which are 2D
       call create_block_type(2, 1, 1, domain_begin, domain_end, grid_size, comm_2D_params, &

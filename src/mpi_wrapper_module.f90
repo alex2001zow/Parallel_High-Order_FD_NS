@@ -213,7 +213,7 @@ contains
       subsizes_4 = global_dims
       starts_4 = global_begin_c
       where(starts_4 /= 0)
-         starts_4 = starts_4 - ghost_begin_c !- 1
+         starts_4 = starts_4 - ghost_begin_c - 1
       end where
       !print *, "Global block: ", "fullsizes_4: ", fullsizes_4, "subsizes_4: ", subsizes_4, "starts_4: ", starts_4
       call MPI_TYPE_CREATE_SUBARRAY(ndims_4, fullsizes_4, subsizes_4, starts_4, MPI_ORDER_FORTRAN, &

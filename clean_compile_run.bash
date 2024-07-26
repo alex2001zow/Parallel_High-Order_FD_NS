@@ -4,7 +4,7 @@
 EXEC="exec/parallel_solver_mpi.out"
 
 # Number of processes
-NUM_PROCESSES=1
+NUM_PROCESSES=8
 
 # Clean output
 rm -f output/*

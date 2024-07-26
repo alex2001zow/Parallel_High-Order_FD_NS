@@ -29,11 +29,11 @@ module test_Poisson_module
    integer, dimension(ndims*num_derivatives), parameter :: derivatives = [2,0,0,2] ! dyy, dxx
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = [32,32], processor_dims = [1,1]
+   integer, dimension(ndims), parameter :: grid_size = [256,256], processor_dims = [1,8]
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
-   real, dimension(ndims), parameter :: domain_begin = [0,0], domain_end = [pi,pi]
-   integer, dimension(ndims), parameter :: stencil_sizes = 9
+   real, dimension(ndims), parameter :: domain_begin = [-10.0*pi,-10.0*pi], domain_end = [10.0*pi,10.0*pi]
+   integer, dimension(ndims), parameter :: stencil_sizes = 3
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
@@ -43,9 +43,9 @@ module test_Poisson_module
    real :: t_steps, dt
 
    !> Solver parameters
-   integer, parameter :: direct_or_iterative = 0, Jacobi_or_GS = 1
-   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
-   integer, parameter :: max_iter = 10000 * (2.0 - omega), multigrid_max_level = 2
+   integer, parameter :: direct_or_iterative = 1, Jacobi_or_GS = 1
+   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 1.0
+   integer, parameter :: max_iter = 1000 * (2.0 - omega), multigrid_max_level = 1
    type(SolverParamsType) :: solver_params
 
    public :: Poisson_main
@@ -431,6 +431,7 @@ contains
       call calculate_scaled_coefficients(block_params%ndims, block_params%extended_grid_dx, FDstencil_params)
 
       call write_dirichlet_bc_2D(comm_params, block_params)
+      call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
       norm_array = 1e3
 
@@ -439,12 +440,14 @@ contains
       do while(converged /= 1 .and. it < solver_params%max_iter)
          if(solver_params%solver_type == 1) then
             call Jacobi_iteration_2D(block_params, FDstencil_params, norm_array(1), norm_array(2), norm_array(3), norm_array(4))
+            call swap_pointers(block_params%matrix_ptr, block_params%temp_matrix_ptr)
             call swap_pointers_2D(block_params%matrix_ptr_2D, block_params%temp_matrix_ptr_2D)
          else if(solver_params%solver_type == 2) then
             call GS_iteration_2D(block_params, FDstencil_params, norm_array(1), norm_array(2), norm_array(3), norm_array(4))
          end if
 
          call write_dirichlet_bc_2D(comm_params, block_params)
+         call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
 
          call check_convergence(comm_params%comm, solver_params%tol, solver_params%divergence_tol, it, norm_array, converged)
          result%converged = converged
@@ -486,7 +489,6 @@ contains
 
             f_val = block_params%f_matrix_ptr_2D(jj,ii)
             u0_val = block_params%matrix_ptr_2D(jj,ii)
-            r0_val = block_params%residual_matrix_ptr_2D(jj,ii)
 
             call get_coefficients_wrapper(FDstencil, [1,1], block_params%extended_block_dims, local_indices, &
                alpha, beta, coefficients)
@@ -539,7 +541,6 @@ contains
 
             f_val = block_params%f_matrix_ptr_2D(jj,ii)
             u0_val = block_params%matrix_ptr_2D(jj,ii)
-            r0_val = block_params%residual_matrix_ptr_2D(jj,ii)
 
             call get_coefficients_wrapper(FDstencil, [1,1], block_params%extended_block_dims, local_indices, &
                alpha, beta, coefficients)

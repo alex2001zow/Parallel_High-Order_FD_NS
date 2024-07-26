@@ -22,11 +22,11 @@ module block_test_module
    integer, parameter :: ndims = 2
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = 4, processor_dims = [1,1]
-   logical, dimension(ndims), parameter :: periods = [.false.,.true.]
+   integer, dimension(ndims), parameter :: grid_size = 16, processor_dims = [2,1]
+   logical, dimension(ndims), parameter :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
-   integer, dimension(ndims), parameter :: stencil_sizes = 5
+   integer, dimension(ndims), parameter :: stencil_sizes = 3
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
@@ -49,12 +49,12 @@ contains
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm_params, &
          ghost_begin, ghost_end, stencil_begin, stencil_end, 1, block_params)
 
-      block_params%matrix_ptr = -1!rank
+      block_params%matrix_ptr = rank
 
       if(ndims == 1) then
-         call write_global_index_to_block_1D(block_params)
+         !call write_global_index_to_block_1D(block_params)
       else if(ndims == 2) then
-         call write_global_index_to_block_2D(block_params)
+         !call write_global_index_to_block_2D(block_params)
       end if
 
       call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
