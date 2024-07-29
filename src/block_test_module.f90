@@ -20,7 +20,7 @@ module block_test_module
    integer, parameter :: ndims = 2
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = 16, processor_dims = [1,2]
+   integer, dimension(ndims), parameter :: grid_size = [64,64], processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
@@ -50,9 +50,9 @@ contains
       block_params%matrix_ptr = rank
 
       if(ndims == 1) then
-         !call write_global_index_to_block_1D(block_params)
+         call write_global_index_to_block_1D(block_params)
       else if(ndims == 2) then
-         !call write_global_index_to_block_2D(block_params)
+         call write_global_index_to_block_2D(block_params)
       end if
 
       call sendrecv_data_neighbors(comm_params%comm, block_params, block_params%matrix_ptr)
@@ -91,9 +91,7 @@ contains
       integer, dimension(data_block%ndims) :: local_indices
 
       do ii = data_block%block_begin_c(1)+1, data_block%block_end_c(1)
-         local_indices = [ii]
-         call IDX_XD(data_block%ndims, data_block%extended_block_dims, local_indices, local_index)
-         data_block%matrix_ptr(local_index) = local_index
+         data_block%matrix_ptr(ii) = ii
 
       end do
 
@@ -106,12 +104,11 @@ contains
       integer :: local_index
       integer, dimension(data_block%ndims) :: local_indices
 
-      do ii = data_block%block_begin_c(1)+1, data_block%block_end_c(1)
-         do jj = data_block%block_begin_c(2)+1, data_block%block_end_c(2)
+      do jj = data_block%block_begin_c(2)+1, data_block%block_end_c(2)
+         do ii = data_block%block_begin_c(1)+1, data_block%block_end_c(1)
             local_indices = [ii, jj]
             call IDX_XD(data_block%ndims, data_block%extended_block_dims, local_indices, local_index)
-            data_block%matrix_ptr(local_index) = local_index
-
+            data_block%matrix_ptr_2D(local_indices(1),local_indices(2)) = local_index
          end do
       end do
 

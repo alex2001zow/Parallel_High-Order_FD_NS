@@ -48,7 +48,6 @@ module test_Poisson_module
    integer, parameter :: solve_iterativly = 0, Jacobi_or_GS = 1
    real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
    integer, parameter :: max_iter = 10 * (2.0 - omega), multigrid_max_level = 4
-   type(SolverParamsType) :: solver_params
 
    public :: Poisson_main
 
@@ -58,6 +57,7 @@ contains
    subroutine Poisson_main(rank, world_size)
       integer, intent(in) :: rank, world_size
 
+      type(SolverParamsType) :: solver_params
       type(comm_type) :: comm_params
       type(FDstencil_type) :: FDstencil_params
       type(block_type) :: data_block
@@ -103,7 +103,7 @@ contains
       ! Run the time loop
       do ii = 1, t_steps
          current_time = current_time + dt
-         call one_timestep(data_block, FDstencil_params, comm_params, result)
+         call one_timestep(solver_params, data_block, FDstencil_params, comm_params, result)
 
          if(rank == MASTER_RANK) then
             print*, "Time step: ", ii, " Time: ", current_time
@@ -161,7 +161,8 @@ contains
 
    end subroutine Poisson_main
 
-   subroutine one_timestep(data_block, FDstencil_params, comm_params, result)
+   subroutine one_timestep(solver_params, data_block, FDstencil_params, comm_params, result)
+      type(SolverParamsType), intent(in) :: solver_params
       type(block_type), intent(inout) :: data_block
       type(FDstencil_type), intent(inout) :: FDstencil_params
       type(comm_type), intent(in) :: comm_params
@@ -196,8 +197,8 @@ contains
 
    end subroutine one_timestep
 
-   recursive subroutine w_cycle(solver, comm, block_fine, FDstencil, result, max_level, level)
-      type(SolverParamsType), intent(in) :: solver
+   recursive subroutine w_cycle(solver_params, comm, block_fine, FDstencil, result, max_level, level)
+      type(SolverParamsType), intent(in) :: solver_params
       type(comm_type), intent(in) :: comm
       type(block_type), intent(inout) :: block_fine
       type(FDstencil_type), intent(inout) :: FDstencil
@@ -214,7 +215,7 @@ contains
       else ! If max level is not reached we restrict the residual to a coarser grid
 
          ! Pre-smoothing
-         call iterative_solver(comm, block_fine, FDstencil, solver, result)
+         call iterative_solver(comm, block_fine, FDstencil, solver_params, result)
 
          ! Create a coarser grid
          call create_block_type(ndims, 1, 1, domain_begin, domain_end, block_fine%grid_size/2, comm, &
@@ -228,7 +229,7 @@ contains
             block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
 
          ! We cycle since we are not at the max level
-         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+         call w_cycle(solver_params, comm, block_coarse, FDstencil, result, max_level, level+1)
 
          ! Prolongate the solution to the finer grid
          call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
@@ -238,7 +239,7 @@ contains
          call apply_correction(block_fine%matrix_ptr, block_fine%residual_matrix_ptr)
 
          ! Second-smoothing
-         call iterative_solver(comm, block_fine, FDstencil, solver, result)
+         call iterative_solver(comm, block_fine, FDstencil, solver_params, result)
 
          ! Residual again from the second-smoothed solution
          call Poisson_residual_2D(0, 1, block_fine, FDstencil)
@@ -248,7 +249,7 @@ contains
             block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
 
          ! Second cycle
-         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+         call w_cycle(solver_params, comm, block_coarse, FDstencil, result, max_level, level+1)
 
          ! Prolongate the solution to the finer grid
          call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
@@ -258,7 +259,7 @@ contains
          call apply_correction(block_fine%matrix_ptr, block_fine%residual_matrix_ptr)
 
          ! Post-smoothing
-         call iterative_solver(comm, block_fine, FDstencil, solver, result)
+         call iterative_solver(comm, block_fine, FDstencil, solver_params, result)
 
          ! Deallocate the coarser grid
          call deallocate_block_type(block_coarse)

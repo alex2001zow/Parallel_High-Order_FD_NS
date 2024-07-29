@@ -36,15 +36,15 @@ module Lid_driven_cavity_benchmark_module
    logical, parameter :: reorder = .true.
    real, dimension(ndims) :: domain_begin = [0,0], domain_end = [1,1]
    integer, dimension(ndims), parameter :: stencil_sizes = 3
-   integer, dimension(ndims), parameter :: uv_ghost_begin = [1,1], uv_ghost_end = [1,1]
-   integer, dimension(ndims), parameter :: p_ghost_begin = [1,1], p_ghost_end = [1,1]
+   integer, dimension(ndims), parameter :: uv_ghost_begin = [0,0], uv_ghost_end = [0,0]
+   integer, dimension(ndims), parameter :: p_ghost_begin = [0,0], p_ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    ! Solver parameters
-   integer, parameter :: solve_iterativly = 1, Jacobi_or_GS = 1
-   integer, parameter :: t_steps = 500 ! 7000 steps for 64x64 grid for t0 = 0.0, t1 = 4.0
-   real, parameter :: t0 = 0.0, t1 = 1.0, dt = (t1-t0)/t_steps
-   integer, parameter :: N_Pressure_Poisson_iterations = 10
+   integer, parameter :: solve_iterativly = 0, Jacobi_or_GS = 1
+   integer, parameter :: t_steps = 7000 ! 7000 steps for 64x64 grid for t0 = 0.0, t1 = 4.0
+   real, parameter :: t0 = 0.0, t1 = 4.0, dt = (t1-t0)/t_steps
+   integer, parameter :: N_Pressure_Poisson_iterations = 50
    real, parameter :: Pressure_Poisson_tol = (1e-6)**2, Pressure_Poisson_div_tol = 1e-1
    integer, parameter :: multigrid_max_level = 3
    real, parameter :: omega = 1.0
@@ -294,36 +294,34 @@ contains
       ! Use the RK4 method to find the intermediate velocity fields only!
       ! f_matrix_ptr is the rhs found from the intermediate velocity fields
 
-      !Parallize the additions and multiplications
-
       !> RK4 step 1
-      call calculate_intermediate_velocity_2D(u1_block, v1_block, FDstencil)
-      call scale_vector(dt, u1_block%f_matrix_ptr) ! uk1 = dt * rhs(u1)
-      call scale_vector(dt, v1_block%f_matrix_ptr) ! vk1 = dt * rhs(v1)
-      call daxpy_to_vector(dt*RK2_time, u1_block%matrix_ptr, u1_block%f_matrix_ptr, u2_block%matrix_ptr) ! u2 = u1 + 1/2 * uk1
-      call daxpy_to_vector(dt*RK2_time, v1_block%matrix_ptr, v1_block%f_matrix_ptr, v2_block%matrix_ptr) ! v2 = v1 + 1/2 * vk1
-      call project_velocity(dt*RK2_time, comm, u2_block, v2_block, p_block, FDstencil, solver, result) ! Project the velocity fields
+      call calculate_intermediate_velocity_2D(dt, u1_block, v1_block, FDstencil)
+      ! uk1 = dt * rhs(u1) Done in calculate_intermediate_velocity_2D
+      ! vk1 = dt * rhs(v1) Done in calculate_intermediate_velocity_2D
+      call daxpy_to_vector(RK2_time, u1_block%matrix_ptr, u1_block%f_matrix_ptr, u2_block%matrix_ptr) ! u2 = u1 + 1/2 * uk1
+      call daxpy_to_vector(RK2_time, v1_block%matrix_ptr, v1_block%f_matrix_ptr, v2_block%matrix_ptr) ! v2 = v1 + 1/2 * vk1
+      call project_velocity(RK2_time, comm, u2_block, v2_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 2
-      call calculate_intermediate_velocity_2D(u2_block, v2_block, FDstencil)
-      call scale_vector(dt, u2_block%f_matrix_ptr) ! uk2 = dt * rhs(u2)
-      call scale_vector(dt, v2_block%f_matrix_ptr) ! vk2 = dt * rhs(v2)
-      call daxpy_to_vector(dt*RK3_time, u1_block%matrix_ptr, u2_block%f_matrix_ptr, u3_block%matrix_ptr) ! u3 = u1 + 1/2 * uk2
-      call daxpy_to_vector(dt*RK3_time, v1_block%matrix_ptr, v2_block%f_matrix_ptr, v3_block%matrix_ptr) ! v3 = v1 + 1/2 * vk2
-      call project_velocity(dt*RK3_time, comm, u3_block, v3_block, p_block, FDstencil, solver, result) ! Project the velocity fields
+      call calculate_intermediate_velocity_2D(dt,u2_block, v2_block, FDstencil)
+      ! uk2 = dt * rhs(u2) Done in calculate_intermediate_velocity_2D
+      ! vk2 = dt * rhs(v2) Done in calculate_intermediate_velocity_2D
+      call daxpy_to_vector(RK3_time, u1_block%matrix_ptr, u2_block%f_matrix_ptr, u3_block%matrix_ptr) ! u3 = u1 + 1/2 * uk2
+      call daxpy_to_vector(RK3_time, v1_block%matrix_ptr, v2_block%f_matrix_ptr, v3_block%matrix_ptr) ! v3 = v1 + 1/2 * vk2
+      call project_velocity(RK3_time, comm, u3_block, v3_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 3
-      call calculate_intermediate_velocity_2D(u3_block, v3_block, FDstencil)
-      call scale_vector(dt, u3_block%f_matrix_ptr) ! uk3 = dt * rhs(u3)
-      call scale_vector(dt, v3_block%f_matrix_ptr) ! vk3 = dt * rhs(v3)
-      call daxpy_to_vector(dt*RK4_time, u1_block%matrix_ptr, u3_block%f_matrix_ptr, u4_block%matrix_ptr) ! u4 = u1 + 1 * uk3
-      call daxpy_to_vector(dt*RK4_time, v1_block%matrix_ptr, v3_block%f_matrix_ptr, v4_block%matrix_ptr) ! v4 = v1 + 1 * vk3
-      call project_velocity(dt*RK4_time, comm, u4_block, v4_block, p_block, FDstencil, solver, result) ! Project the velocity fields
+      call calculate_intermediate_velocity_2D(dt, u3_block, v3_block, FDstencil)
+      ! uk3 = dt * rhs(u3) Done in calculate_intermediate_velocity_2D
+      ! vk3 = dt * rhs(v3) Done in calculate_intermediate_velocity_2D
+      call daxpy_to_vector(RK4_time, u1_block%matrix_ptr, u3_block%f_matrix_ptr, u4_block%matrix_ptr) ! u4 = u1 + 1 * uk3
+      call daxpy_to_vector(RK4_time, v1_block%matrix_ptr, v3_block%f_matrix_ptr, v4_block%matrix_ptr) ! v4 = v1 + 1 * vk3
+      call project_velocity(RK4_time, comm, u4_block, v4_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 4
-      call calculate_intermediate_velocity_2D(u4_block, v4_block, FDstencil)
-      call scale_vector(dt, u4_block%f_matrix_ptr) ! uk4 = dt * rhs(u4)
-      call scale_vector(dt, v4_block%f_matrix_ptr) ! vk4 = dt * rhs(v4)
+      call calculate_intermediate_velocity_2D(dt, u4_block, v4_block, FDstencil)
+      ! uk4 = dt * rhs(u4) Done in calculate_intermediate_velocity_2D
+      ! vk4 = dt * rhs(v4) Done in calculate_intermediate_velocity_2D
 
       !> Combine the results
       !$omp parallel do default(none) &
@@ -456,7 +454,8 @@ contains
    end subroutine write_pressure_BC_2D
 
    ! Calculate rhs for the 2D Navier-Stokes equation
-   subroutine calculate_intermediate_velocity_2D(u_block, v_block, FDstencil)
+   subroutine calculate_intermediate_velocity_2D(dt, u_block, v_block, FDstencil)
+      real, intent(in) :: dt
       type(block_type), intent(inout) :: u_block, v_block
       type(FDstencil_type), target, intent(inout) :: FDstencil
 
@@ -470,7 +469,7 @@ contains
       call calculate_scaled_coefficients(u_block%ndims, u_block%extended_grid_dx, FDstencil)
 
       !$omp parallel do collapse(2) default(none) &
-      !$omp shared(u_block, v_block, FDstencil) &
+      !$omp shared(dt, u_block, v_block, FDstencil) &
       !$omp private(ii, jj, uv_local_indices, u, v, u_rhs, v_rhs, coefficients, alpha, beta, dx, dy, dxx, dyy, combined_stencil, &
       !$omp dx_2D, dy_2D, dxx_2D, dyy_2D, combined_stencil_2D)
       do jj = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
@@ -496,8 +495,8 @@ contains
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencil, combined_stencil_2D)
             call apply_FDstencil_2D(combined_stencil_2D, v_block%matrix_ptr_2D, uv_local_indices, alpha, beta, v_rhs)
 
-            u_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = u_rhs
-            v_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = v_rhs
+            u_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = dt * u_rhs ! uk = dt * rhs(u)
+            v_block%f_matrix_ptr_2D(uv_local_indices(1),uv_local_indices(2)) = dt * v_rhs ! vk = dt * rhs(v)
 
          end do
       end do
@@ -689,6 +688,8 @@ contains
 
             ! At the bottom wall, u_y = 0 (Neumann condition)
             if(local_indices(2) == p_block%extended_block_end_c(2)) then
+               p_block%direct_solver_matrix_ptr_2D(diag,:) = 0.0
+               p_block%direct_solver_matrix_ptr_2D(diag,diag) = 1.0
                call set_matrix_coefficients(p_block%ndims, FDstencil%stencil_sizes, p_block%extended_block_dims, &
                   dy, p_block%direct_solver_matrix_ptr_2D, local_indices, alpha, beta)
             end if
