@@ -8,11 +8,10 @@ module FD_test_module
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, apply_FDstencil_2D, calculate_scaled_coefficients, get_coefficients_wrapper
    use block_module, only: block_type, create_block_type, deallocate_block_type, sendrecv_data_neighbors, print_block_type
-   use functions_module, only: FunctionPtrType, FunctionPair, set_function_pointers, calculate_point
+   use functions_module, only: calculate_point
 
    use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers, &
       reshape_real_1D_to_2D
-   use initialization_module, only: write_function_to_block, write_initial_condition_and_boundary
 
    use solver_module, only: SolverParamsType, set_SolverParamsType, &
       ResultType, print_resultType, check_convergence
@@ -105,9 +104,9 @@ contains
       !$omp shared(test_block, FDstencil) &
       !$omp private(ii, jj, local_indices, coefficients, dx, dy, dxy, dxx, dyy, dx_2D, dy_2D, dxy_2D, dxx_2D, dyy_2D, &
       !$omp alpha, beta, u_x, u_y, u_xy, u_xx, u_yy)
-      do ii = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
-         do jj = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
-            local_indices = [jj,ii]
+      do jj = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
+         do ii = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
+            local_indices = [ii,jj]
 
             call get_coefficients_wrapper(FDstencil, [1,1], test_block%extended_block_dims, local_indices, &
                alpha, beta, coefficients)
@@ -130,7 +129,7 @@ contains
             call apply_FDstencil_2D(dxx_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_xx)
             call apply_FDstencil_2D(dyy_2D, test_block%matrix_ptr_2D, local_indices, alpha, beta, u_yy)
 
-            test_block%f_matrix_ptr_2D(jj, ii) = u_xy
+            test_block%f_matrix_ptr_2D(local_indices(1), local_indices(2)) = u_xy
 
          end do
       end do
@@ -150,9 +149,9 @@ contains
       !$omp parallel do collapse(2) default(none) &
       !$omp shared(test_block) &
       !$omp private(ii, jj, local_indices, global_indices, point, u, u_x, u_y, u_xy, u_xx, u_yy)
-      do ii = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
-         do jj = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
-            local_indices = [jj,ii]
+      do jj = test_block%block_begin_c(2)+1, test_block%block_end_c(2)
+         do ii = test_block%block_begin_c(1)+1, test_block%block_end_c(1)
+            local_indices = [ii,jj]
             global_indices = test_block%extended_global_begin_c + local_indices
 
             call calculate_point(test_block%ndims, -test_block%global_grid_begin, global_indices, &

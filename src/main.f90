@@ -12,11 +12,8 @@ subroutine run_simulation()
    use FD_test_module, only: FD_test_main
    use block_test_module, only: block_test_main
    use test_Poisson_module, only: Poisson_main
-   use nonlinear_test_module, only: nonlinear_1D_test_main
    use Lid_driven_cavity_benchmark_module, only: Lid_driven_cavity_benchmark_2D
    use TravellingWave_2D_module, only: TravelingWave_Poisson_2D_main
-   !use LinearStandingWave_3D_module, only: LinearStandingWave_3D_main
-   use scalapack_module, only: solve_pde_with_scalapack, solve_pde_with_scalapack_2
    implicit none
 
    integer :: num_physical_cores, rank, world_size
@@ -32,14 +29,10 @@ subroutine run_simulation()
    !call FD_test_main(rank, world_size)
    !call block_test_main(rank, world_size)
 
-   ! Call the main simulation routine
+   ! Main functions
    !call Poisson_main(rank, world_size)
-   !call nonlinear_1D_test_main(rank, world_size)
-   !call Lid_driven_cavity_benchmark_2D(rank, world_size)
+   call Lid_driven_cavity_benchmark_2D(rank, world_size)
    !call TravelingWave_Poisson_2D_main(rank, world_size)
-   !call LinearStandingWave_3D_main(rank, world_size)
-
-   call solve_pde_with_scalapack_2(rank, world_size)
 
    ! Finalize MPI
    call finalize_mpi_wrapper()

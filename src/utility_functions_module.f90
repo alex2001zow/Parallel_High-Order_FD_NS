@@ -7,12 +7,13 @@ module utility_functions_module
       reshape_real_1D_to_6D, reshape_real_1D_to_7D
    public :: reshape_integer_1D_to_2D, reshape_integer_1D_to_3D
    public :: IDX_XD, IDX_XD_INV
-   public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
-   public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
+   public :: print_integer_1D_array, print_integer_2D_array
+   public :: print_real_1D_array, print_real_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
    public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D
    public :: sleeper_function
-   public :: LU_decomposition, solve_LU_system, copy_vector, scale_vector, daxpy_to_vector
+   public :: LU_decomposition, solve_LU_system, copy_vector, scale_vector, daxpy_wrapper, daxpy_to_vector
+   public :: set_bc_zero_2D
 
 contains
 
@@ -141,100 +142,6 @@ contains
 
    end subroutine IDX_XD_INV
 
-   !> Routine to print an array of type real
-   subroutine print_real_array(ndims, dims, begin_c, end_c, array, stride, title, iounit)
-      integer, intent(in) :: ndims, stride, iounit
-      integer, dimension(:), intent(in) :: dims, begin_c, end_c
-      real, dimension(:), intent(in) :: array
-      character(len=*), intent(in) :: title
-
-      integer :: ii, jj, kk, global_index
-
-      character(len=32) :: element_format
-
-      element_format = "(F10.3)"  ! Format for each element
-
-      write(iounit, *) title
-      select case(ndims)
-       case (1)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-         end do
-
-       case (2)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, *)
-            do jj = begin_c(2)+1,end_c(2)
-               call IDX_XD(ndims, dims, [ii, jj], global_index)
-               write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-            end do
-         end do
-
-       case (3)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, *)
-            write(iounit, *)
-            write(iounit, *) "ii: ", ii
-            do jj = begin_c(2)+1, end_c(2)
-               write(iounit, *)
-               do kk = begin_c(3)+1, end_c(3)
-                  call IDX_XD(ndims, dims, [ii, jj, kk], global_index)
-                  write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-               end do
-            end do
-         end do
-
-      end select
-
-   end subroutine print_real_array
-
-   !> Routine to print an array of type integer
-   subroutine print_integer_array(ndims, dims, begin_c, end_c, array, stride, title, iounit)
-      integer, intent(in) :: ndims, stride, iounit
-      integer, dimension(:), intent(in) :: dims, begin_c, end_c
-      integer, dimension(:), intent(in) :: array
-      character(len=*), intent(in) :: title
-
-      integer :: ii, jj, kk, global_index
-
-      character(len=32) :: element_format
-
-      element_format = "(I6)"  ! Format for each element
-
-      write(iounit, *) title
-      select case(ndims)
-       case (1)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-         end do
-
-       case (2)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, *)
-            do jj = begin_c(2)+1,end_c(2)
-               call IDX_XD(ndims, dims, [ii, jj], global_index)
-               write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-            end do
-         end do
-
-       case (3)
-         do ii = begin_c(1)+1, end_c(1)
-            write(iounit, *)
-            write(iounit, *)
-            write(iounit, *) "ii: ", ii
-            do jj = begin_c(2)+1, end_c(2)
-               write(iounit, *)
-               do kk = begin_c(3)+1, end_c(3)
-                  call IDX_XD(ndims, dims, [ii, jj, kk], global_index)
-                  write(iounit, element_format, advance="no") array(global_index:global_index+stride-1)
-               end do
-            end do
-         end do
-
-      end select
-
-   end subroutine print_integer_array
-
    !> Routine to print a 1D array of type integer
    subroutine print_integer_1D_array(array, iounit)
       integer, dimension(:), intent(in) :: array
@@ -255,10 +162,10 @@ contains
 
       integer :: ii, jj
 
-      do ii = 1, size(array, 2)
+      do jj = 1, size(array, 2)
          write(iounit, *)
-         do jj = 1, size(array, 1)
-            write(iounit,"(I6)", advance="no") array(jj, ii)
+         do ii = 1, size(array, 1)
+            write(iounit,"(I6)", advance="no") array(ii, jj)
          end do
       end do
 
@@ -284,35 +191,14 @@ contains
 
       integer :: ii, jj
 
-      do ii = 1, size(array, 2)
+      do jj = 1, size(array, 2)
          write(iounit, *)
-         do jj = 1, size(array, 1)
-            write(iounit,"(F10.3)", advance="no") array(jj, ii)
+         do ii = 1, size(array, 1)
+            write(iounit,"(F10.3)", advance="no") array(ii, jj)
          end do
       end do
 
    end subroutine print_real_2D_array
-
-   !> Routine to print a 3D array of type real
-   subroutine print_real_3D_array(array, iounit)
-      real, dimension(:,:,:), intent(in) :: array
-      integer, intent(in) :: iounit
-
-      integer :: ii, jj, kk
-
-      do ii = 1, size(array, 3)
-         write(iounit, *)
-         write(iounit, *)
-         write(iounit, *) "ii: ", ii
-         do jj = 1, size(array, 2)
-            write(iounit, *)
-            do kk = 1, size(array, 1)
-               write(iounit,"(F10.3)", advance="no") array(kk, jj, ii)
-            end do
-         end do
-      end do
-
-   end subroutine print_real_3D_array
 
    !> Routine to open a file for writing
    subroutine open_txt_file(filename, rank, iounit)
@@ -490,6 +376,15 @@ contains
       call DSCAL(size(vector), scalar, vector, 1)
    end subroutine scale_vector
 
+   !> Subroutine to y = a * x + y
+   subroutine daxpy_wrapper(a, x, y)
+      real, intent(in) :: a
+      real, dimension(:), intent(in) :: x
+      real, dimension(:), intent(inout) :: y
+
+      call DAXPY(size(x), a, x, 1, y, 1)
+   end subroutine daxpy_wrapper
+
    !> Subroutine to v = x + a * y
    subroutine daxpy_to_vector(a,x,y,v)
       real, intent(in) :: a
@@ -508,5 +403,26 @@ contains
       !$omp end parallel do
 
    end subroutine daxpy_to_vector
+
+   !> Subroutine to set the boundary of a matrix to zero
+   subroutine set_bc_zero_2D(matrix)
+      real, dimension(:,:), intent(inout) :: matrix
+
+      integer :: ii, jj
+
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(matrix) &
+      !$omp private(ii, jj)
+      do jj = 1, size(matrix,2)
+         do ii = 1, size(matrix,1)
+            if(ii == 1 .or. ii == size(matrix,1) .or. jj == 1 .or. jj == size(matrix,2)) then
+               matrix(ii,jj) = 0.0
+            end if
+         end do
+      end do
+
+      !$omp end parallel do
+
+   end subroutine set_bc_zero_2D
 
 end module utility_functions_module

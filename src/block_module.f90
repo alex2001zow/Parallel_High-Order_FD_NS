@@ -4,7 +4,7 @@ module block_module
       sendrecv_data_to_neighbors, waitall_mpi_wrapper
    use comm_module, only: comm_type, get_cart_neighbors, begin_end_neighbor_indices
    use utility_functions_module, only: reshape_real_1D_to_2D, reshape_real_1D_to_3D, reshape_real_1D_to_4D, &
-      IDX_XD, IDX_XD_INV, calculate_dx, sleeper_function, print_real_1D_array, print_real_2D_array, print_real_3D_array
+      IDX_XD, IDX_XD_INV, calculate_dx, sleeper_function, print_real_1D_array, print_real_2D_array
    implicit none
 
    private
@@ -538,7 +538,7 @@ contains
        case (2)
          call print_real_2D_array(block_input%matrix_ptr_2D, iounit)
        case (3)
-         call print_real_3D_array(block_input%matrix_ptr_3D, iounit)
+         write(iounit, *) "3D not implemented yet"
       end select
 
       write(iounit, *)
@@ -549,7 +549,7 @@ contains
        case (2)
          call print_real_2D_array(block_input%f_matrix_ptr_2D, iounit)
        case (3)
-         call print_real_3D_array(block_input%f_matrix_ptr_3D, iounit)
+         write(iounit, *) "3D not implemented yet"
       end select
 
       ! write(iounit, *)
@@ -560,7 +560,7 @@ contains
       !  case (2)
       !    call print_real_2D_array(block_input%residual_matrix_ptr_2D, iounit)
       !  case (3)
-      !    call print_real_3D_array(block_input%residual_matrix_ptr_3D, iounit)
+      !    write(iounit, *) "3D not implemented yet"
       ! end select
       !call print_real_2D_array(block_input%direct_solver_matrix_ptr_2D, iounit)
 

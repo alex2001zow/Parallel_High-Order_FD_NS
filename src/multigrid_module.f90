@@ -1,13 +1,14 @@
 !> This module contains implementations of the necessary functions for the multigrid method
 module multigrid_module
-   use utility_functions_module, only: IDX_XD, IDX_XD_INV
+   use utility_functions_module, only: daxpy_wrapper
    use block_module, only: block_type
    use FD_module, only: apply_FDstencil
    implicit none
 
    private
 
-   public :: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction_2D
+   public :: full_weighing_restriction_2D, bilinear_prolongation_2D
+   public :: apply_correction
 
 contains
 
@@ -105,24 +106,13 @@ contains
 
    end subroutine bilinear_prolongation_2D
 
-   !> Subroutine to apply the error correction to the solution
-   subroutine apply_correction_2D(fine_extended_dims, fine_solution, correction)
-      integer, dimension(:), intent(in) :: fine_extended_dims
-      real, dimension(:,:), intent(inout) :: fine_solution
-      real, dimension(:,:), intent(in) :: correction ! Stored in the residual array
+   !> Subroutine to apply the error correction to the solution.
+   subroutine apply_correction(fine_solution, correction)
+      real, dimension(:), intent(inout) :: fine_solution
+      real, dimension(:), intent(in) :: correction ! Stored in the residual array
 
-      integer :: fi, fj
+      call daxpy_wrapper(1.0, correction, fine_solution)
 
-      !$omp parallel do collapse(2) default(none) &
-      !$omp shared(fine_extended_dims, fine_solution, correction) &
-      !$omp private(fi, fj)
-      do fi = 1, fine_extended_dims(2)
-         do fj = 1, fine_extended_dims(1)
-            fine_solution(fj,fi) = fine_solution(fj,fi) + correction(fj,fi)
-         end do
-      end do
-      !$omp end parallel do
-
-   end subroutine apply_correction_2D
+   end subroutine apply_correction
 
 end module multigrid_module

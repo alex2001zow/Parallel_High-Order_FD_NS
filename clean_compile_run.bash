@@ -4,7 +4,7 @@
 EXEC="exec/parallel_solver_mpi.out"
 
 # Number of processes
-NUM_PROCESSES=2
+NUM_PROCESSES=1
 
 # Clean output
 rm -f output/*
@@ -14,7 +14,7 @@ rm -f python/output/*
 make clean
 
 # Compile the program either in debug or release mode
-make debug
+make release
 
 if [ $? -eq 0 ]; then
   # Compilation successful, run the program

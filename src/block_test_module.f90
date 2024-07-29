@@ -8,13 +8,11 @@ module block_test_module
    use FD_module, only: FDstencil_type, create_finite_difference_stencils, deallocate_finite_difference_stencil, &
       print_finite_difference_stencil, apply_FDstencil
    use block_module, only: block_type, create_block_type, deallocate_block_type, print_block_type, sendrecv_data_neighbors
-   use functions_module, only: FunctionPair, set_function_pointers, calculate_point
+   use functions_module, only: calculate_point
 
    use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function
-   use initialization_module, only: write_initial_condition_and_boundary
 
-   use solver_module, only: SolverPtrType, set_SystemSolver_pointer, SolverParamsType, set_SolverParamsType, &
-      ResultType, print_resultType, choose_iterative_solver
+   use solver_module, only: SolverParamsType, set_SolverParamsType, ResultType, print_resultType
    implicit none
 
    private
@@ -22,7 +20,7 @@ module block_test_module
    integer, parameter :: ndims = 2
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = 16, processor_dims = [2,1]
+   integer, dimension(ndims), parameter :: grid_size = 16, processor_dims = [1,2]
    logical, dimension(ndims), parameter :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = 0, domain_end = 1
@@ -84,35 +82,35 @@ contains
 
    end subroutine block_test_main
 
-   pure subroutine write_global_index_to_block_1D(block_params)
+   pure subroutine write_global_index_to_block_1D(data_block)
 
-      type(block_type), intent(inout) :: block_params
+      type(block_type), intent(inout) :: data_block
 
       integer :: ii
       integer :: local_index
-      integer, dimension(block_params%ndims) :: local_indices
+      integer, dimension(data_block%ndims) :: local_indices
 
-      do ii = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
+      do ii = data_block%block_begin_c(1)+1, data_block%block_end_c(1)
          local_indices = [ii]
-         call IDX_XD(block_params%ndims, block_params%extended_block_dims, local_indices, local_index)
-         block_params%matrix_ptr(local_index) = local_index
+         call IDX_XD(data_block%ndims, data_block%extended_block_dims, local_indices, local_index)
+         data_block%matrix_ptr(local_index) = local_index
 
       end do
 
    end subroutine write_global_index_to_block_1D
 
-   pure subroutine write_global_index_to_block_2D(block_params)
-      type(block_type), intent(inout) :: block_params
+   pure subroutine write_global_index_to_block_2D(data_block)
+      type(block_type), intent(inout) :: data_block
 
       integer :: ii, jj
       integer :: local_index
-      integer, dimension(block_params%ndims) :: local_indices
+      integer, dimension(data_block%ndims) :: local_indices
 
-      do ii = block_params%block_begin_c(1)+1, block_params%block_end_c(1)
-         do jj = block_params%block_begin_c(2)+1, block_params%block_end_c(2)
+      do ii = data_block%block_begin_c(1)+1, data_block%block_end_c(1)
+         do jj = data_block%block_begin_c(2)+1, data_block%block_end_c(2)
             local_indices = [ii, jj]
-            call IDX_XD(block_params%ndims, block_params%extended_block_dims, local_indices, local_index)
-            block_params%matrix_ptr(local_index) = local_index
+            call IDX_XD(data_block%ndims, data_block%extended_block_dims, local_indices, local_index)
+            data_block%matrix_ptr(local_index) = local_index
 
          end do
       end do

@@ -1,6 +1,6 @@
 module FD_module
    use utility_functions_module, only : reshape_real_1D_to_4D, reshape_real_1D_to_5D, &
-      IDX_XD, IDX_XD_INV, print_real_array, sleeper_function
+      IDX_XD, IDX_XD_INV, sleeper_function
    use block_module, only : block_type
    implicit none
 

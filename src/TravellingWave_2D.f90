@@ -13,7 +13,7 @@ module TravellingWave_2D_module
       update_value_from_stencil_2D, apply_FDstencil_2D, apply_FDstencil_1D, update_value_from_stencil
    use functions_module, only: calculate_point
    use solver_module, only: check_convergence, set_ResultType
-   use multigrid_module, only: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction_2D
+   use multigrid_module, only: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction
    implicit none
 
    private
@@ -24,7 +24,7 @@ module TravellingWave_2D_module
 
    !> Derivatives for 1D and 2D
    integer, dimension(ndims_1D * num_derivatives_1D), parameter :: derivatives_1D = [1] ! dx
-   integer, dimension(ndims_2D * num_derivatives_2D), parameter :: derivatives_2D = [1,0,0,1,2,0,0,2] ! ds, dx, dss, dxx
+   integer, dimension(ndims_2D * num_derivatives_2D), parameter :: derivatives_2D = [1,0,0,1,2,0,0,2] ! dx, ds, dxx, dss
 
    !> Physical parameters
    real, parameter :: g = 9.81, mu = 1.3059*(1e-6), rho = 1.0!, nu = mu/rho
@@ -371,8 +371,7 @@ contains
             p_block_fine%residual_matrix_ptr_2D, p_block_coarse%matrix_ptr_2D)
 
          ! Error correction
-         call apply_correction_2D(p_block_fine%extended_block_dims, p_block_fine%matrix_ptr_2D, &
-            p_block_fine%residual_matrix_ptr_2D)
+         call apply_correction(p_block_fine%matrix_ptr, p_block_fine%residual_matrix_ptr)
 
          ! Second-smoothing
          call solve_pressure_poisson(comm, u_block_fine, v_block_fine, p_block_fine, FDstencil, solver, result)
@@ -392,8 +391,7 @@ contains
             p_block_fine%residual_matrix_ptr_2D, p_block_coarse%matrix_ptr_2D)
 
          ! Final error correction
-         call apply_correction_2D(p_block_fine%extended_block_dims, p_block_fine%matrix_ptr_2D, &
-            p_block_fine%residual_matrix_ptr_2D)
+         call apply_correction(p_block_fine%matrix_ptr, p_block_fine%residual_matrix_ptr)
 
          ! Post-smoothing
          call solve_pressure_poisson(comm, u_block_fine, v_block_fine, p_block_fine, FDstencil, solver, result)
