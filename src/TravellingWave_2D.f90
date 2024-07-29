@@ -110,8 +110,8 @@ contains
 
       do iter = 1, t_steps
          current_t = current_t + dt
-         call one_timestep(dt, result_params, solver_params, comm_1D_params, comm_2D_params, eta_params, u_params, v_params, p_params, &
-            FDstencil_1D_params, FDstencil_2D_params)
+         call one_timestep(dt, result_params, solver_params, comm_1D_params, comm_2D_params, &
+            eta_params, u_params, v_params, p_params, FDstencil_1D_params, FDstencil_2D_params)
          write(*,*) "Time: ", current_t, "Iterations: ", iter
       end do
 
@@ -250,7 +250,8 @@ contains
 
       !$omp parallel do collapse(2) default(none) &
       !$omp shared(dt, u_block, v_block, FDstencil_2D) &
-      !$omp private(ii, jj, uv_local_indices, alpha, beta, coefficients, ds, dx, dss, dxx, combined_stencil, combined_stencil_2D, u, v)
+      !$omp private(ii, jj, uv_local_indices, alpha, beta, coefficients, ds, dx, dss, dxx, &
+      !$omp combined_stencil, combined_stencil_2D, u, v)
       do ii = u_block%block_begin_c(2)+1, u_block%block_end_c(2)
          do jj = u_block%block_begin_c(1)+1, u_block%block_end_c(1)
             uv_local_indices = [jj,ii]

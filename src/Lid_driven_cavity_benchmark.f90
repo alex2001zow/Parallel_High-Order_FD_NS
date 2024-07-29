@@ -12,10 +12,13 @@ module Lid_driven_cavity_benchmark_module
    use functions_module, only: FunctionPtrType, FunctionPair, set_function_pointers, calculate_point
 
    use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers, &
-      reshape_real_1D_to_2D, calculate_dt_from_CFL, swap_pointers_2D, copy_1D_array
+      reshape_real_1D_to_2D, calculate_dt_from_CFL, swap_pointers_2D, LU_decomposition, solve_LU_system, &
+      copy_vector, scale_vector, daxpy_to_vector
 
    use solver_module, only: SolverParamsType, set_SolverParamsType, &
-      ResultType, print_resultType, check_convergence, set_ResultType, LU_decomposition, solve_LU_system
+      ResultType, print_resultType, check_convergence, set_ResultType
+
+   use multigrid_module, only: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction_2D
    implicit none
 
    private
@@ -26,24 +29,26 @@ module Lid_driven_cavity_benchmark_module
    integer, dimension(ndims*num_derivatives), parameter :: derivatives = [1,0,0,1,2,0,0,2] ! dy, dx, dyy, dxx
 
    ! Grid parameters
-   integer, dimension(ndims) :: grid_size = [128,128], processor_dims = [1,1]
+   integer, dimension(ndims) :: grid_size = [32,32], processor_dims = [1,1]
    logical, dimension(ndims) :: periods = [.false.,.false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims) :: domain_begin = [0,0], domain_end = [1,1]
    integer, dimension(ndims), parameter :: stencil_sizes = 3
-   integer, dimension(ndims), parameter :: uv_ghost_begin = [1,1], uv_ghost_end = [1,1]
-   integer, dimension(ndims), parameter :: p_ghost_begin = [1,1], p_ghost_end = [1,1]
+   integer, dimension(ndims), parameter :: uv_ghost_begin = [0,0], uv_ghost_end = [0,0]
+   integer, dimension(ndims), parameter :: p_ghost_begin = [0,0], p_ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    ! Solver parameters
-   integer, parameter :: direct_or_iterative = 0, Jacobi_or_GS = 1, omega = 1.0
-   integer, parameter :: N_iterations = 500
+   integer, parameter :: iterative_solver = 0, Jacobi_or_GS = 1
+   integer, parameter :: t_steps = 7000 ! 7000 steps for 64x64 grid for t0 = 0.0, t1 = 4.0
+   real, parameter :: t0 = 0.0, t1 = 4.0, dt = (t1-t0)/t_steps
    integer, parameter :: N_Pressure_Poisson_iterations = 50
-   real, parameter :: Pressure_Poisson_tol = 1e-6, Pressure_Poisson_div_tol = 1e-1
+   real, parameter :: Pressure_Poisson_tol = (1e-6)**2, Pressure_Poisson_div_tol = 1e-1
+   integer, parameter :: multigrid_max_level = 3
+   real, parameter :: omega = 1.0
 
    ! Physical parameters
    real, parameter :: rho = 1.0, nu = 0.1, system_u_lid = 1.0
-   real :: dt = 0.0001
    real, dimension(ndims), parameter :: F = [0.0, 0.0]
 
    public :: Lid_driven_cavity_benchmark_2D
@@ -92,34 +97,14 @@ contains
          uv_ghost_begin, uv_ghost_end, stencil_begin, stencil_end, 1, v4_block)
 
       call create_block_type(ndims, 1, 1, domain_begin, domain_end, grid_size, comm, &
-         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, direct_or_iterative, p_block)
+         p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, iterative_solver, p_block)
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil)
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
 
-      if(direct_or_iterative == 1) then
-         ! Run the solver
-         do ii = 1, N_iterations
-            call RK4(dt, comm, p_block, &
-               u1_block, v1_block, &
-               u2_block, v2_block, &
-               u3_block, v3_block, &
-               u4_block, v4_block, &
-               FDstencil, solver, result)
-
-            if(rank == MASTER_RANK) then
-               print*, "Iteration: ", ii, "/", N_iterations
-               call print_resultType(result)
-            end if
-
-            if(result%converged == -1) then
-               exit
-            end if
-
-         end do
-      else
+      if(iterative_solver /= 1) then
          !> Assemble the matrix A
          call assemble_matrix_2D(p_block, FDstencil)
 
@@ -128,22 +113,26 @@ contains
 
          !> Decompose the matrix A into LU
          call LU_decomposition(p_block%direct_solver_matrix_ptr_2D, p_block%ipiv)
-
-         ! Run the solver
-         do ii = 1, N_iterations
-            call RK4(dt, comm, p_block, &
-               u1_block, v1_block, &
-               u2_block, v2_block, &
-               u3_block, v3_block, &
-               u4_block, v4_block, &
-               FDstencil, solver, result)
-
-            if(rank == MASTER_RANK) then
-               print*, "Iteration: ", ii, "/", N_iterations
-               call print_resultType(result)
-            end if
-         end do
       end if
+
+      ! Run the solver
+      do ii = 1, t_steps
+         call RK4(dt, comm, p_block, &
+            u1_block, v1_block, &
+            u2_block, v2_block, &
+            u3_block, v3_block, &
+            u4_block, v4_block, &
+            FDstencil, solver, result)
+
+         if(rank == MASTER_RANK) then
+            print*, "Iteration: ", ii, "/", t_steps
+            call print_resultType(result)
+
+            if(result%converged == -1) then
+               exit
+            end if
+         end if
+      end do
 
       result_array_with_timings(2) = MPI_WTIME()
 
@@ -158,20 +147,20 @@ contains
       end if
 
       ! Write out our setup to a file. Just for debugging purposes
-      !call open_txt_file("output/output_from_", rank, iounit)
+      call open_txt_file("output/output_from_", rank, iounit)
 
       !call print_cart_comm_type(comm_params, iounit)
 
-      !call print_block_type(u_block_params, iounit)
-      !call print_block_type(v_block_params, iounit)
-      !call print_block_type(p_block_params, iounit)
+      call print_block_type(u1_block, iounit)
+      call print_block_type(v1_block, iounit)
+      call print_block_type(p_block, iounit)
 
       !call print_finite_difference_stencil(FDstencil_params, iounit)
 
-      !call close_txt_file(iounit)
+      call close_txt_file(iounit)
 
       ! ! Write out system solution to a file
-      if(direct_or_iterative == 1) then
+      if(iterative_solver == 1) then
          call write_block_data_to_file(u1_block%data_layout, "output/u_solution.dat", comm%comm, u1_block%matrix)
          call write_block_data_to_file(v1_block%data_layout, "output/v_solution.dat", comm%comm, v1_block%matrix)
          call write_block_data_to_file(p_block%data_layout, "output/p_solution.dat", comm%comm, p_block%matrix)
@@ -203,6 +192,125 @@ contains
 
    end subroutine Lid_driven_cavity_benchmark_2D
 
+   recursive subroutine w_cycle(solver, comm, block_fine, FDstencil, result, max_level, level)
+      type(SolverParamsType), intent(in) :: solver
+      type(comm_type), intent(in) :: comm
+      type(block_type), intent(inout) :: block_fine
+      type(FDstencil_type), intent(inout) :: FDstencil
+      type(ResultType), intent(out) :: result
+      integer, intent(in) :: max_level, level
+
+      type(block_type) :: block_coarse
+
+      !write(0,*) "Multigrid level: ", level
+
+      if(level == max_level) then
+         call solve_poisson_problem_2D(comm, block_fine, FDstencil, solver, result)
+
+      else ! If max level is not reached we restrict the residual to a coarser grid
+
+         ! Pre-smoothing
+         call solve_poisson_problem_2D(comm, block_fine, FDstencil, solver, result)
+
+         ! Create a coarser grid
+         call create_block_type(ndims, 1, 1, domain_begin, domain_end, block_fine%grid_size/2, comm, &
+            p_ghost_begin, p_ghost_end, stencil_begin, stencil_end, 1, block_coarse)
+
+         ! Residual errors
+         call calculate_residual_2D(comm, block_fine, FDstencil)
+
+         ! Restrict the residual to the coarser grid
+         call full_weighing_restriction_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
+
+         ! We cycle since we are not at the max level
+         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+
+         ! Prolongate the solution to the finer grid
+         call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%matrix_ptr_2D)
+
+         ! Error correction
+         call apply_correction_2D(block_fine%extended_block_dims,block_fine%matrix_ptr_2D, block_fine%residual_matrix_ptr_2D)
+
+         ! Second-smoothing
+         call solve_poisson_problem_2D(comm, block_fine, FDstencil, solver, result)
+
+         ! Residual again from the second-smoothed solution
+         call calculate_residual_2D(comm, block_fine, FDstencil)
+
+         ! Restrict the residual to the coarser grid again
+         call full_weighing_restriction_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%f_matrix_ptr_2D)
+
+         ! Second cycle
+         call w_cycle(solver, comm, block_coarse, FDstencil, result, max_level, level+1)
+
+         ! Prolongate the solution to the finer grid
+         call bilinear_prolongation_2D(block_fine%extended_block_dims, block_coarse%extended_block_dims, &
+            block_fine%residual_matrix_ptr_2D, block_coarse%matrix_ptr_2D)
+
+         ! Final error correction
+         call apply_correction_2D(block_fine%extended_block_dims, block_fine%matrix_ptr_2D, block_fine%residual_matrix_ptr_2D)
+
+         ! Post-smoothing
+         call solve_poisson_problem_2D(comm, block_fine, FDstencil, solver, result)
+
+         ! Deallocate the coarser grid
+         call deallocate_block_type(block_coarse)
+
+      end if
+
+   end subroutine w_cycle
+
+   !> Calculate the residual of the pressure poisson equation
+   subroutine calculate_residual_2D(comm, p_block, FDstencil)
+      type(comm_type), intent(in) :: comm
+      type(block_type), intent(inout) :: p_block
+      type(FDstencil_type), intent(inout) :: FDstencil
+
+      integer :: ii, jj
+      integer, dimension(ndims) :: p_local_indices, alpha, beta
+      real, contiguous, dimension(:), pointer :: coefficients, dxx, dyy
+      real, dimension(product(FDstencil%stencil_sizes)), target :: combined_stencils
+      real, contiguous, dimension(:,:), pointer :: combined_stencils_2D
+      real :: laplacian_p
+
+      call calculate_scaled_coefficients(p_block%ndims, p_block%extended_grid_dx, FDstencil)
+
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(p_block, FDstencil) &
+      !$omp private(ii, jj, p_local_indices, alpha, beta, coefficients, dxx, dyy, combined_stencils, &
+      !$omp combined_stencils_2D, laplacian_p)
+      do jj = p_block%block_begin_c(2)+1, p_block%block_end_c(2)
+         do ii = p_block%block_begin_c(1)+1, p_block%block_end_c(1)
+            p_local_indices = [ii,jj]
+
+            call get_coefficients_wrapper(FDstencil, [1,1], p_block%extended_block_dims, p_local_indices, &
+               alpha, beta, coefficients)
+
+            dyy => coefficients(2 * FDstencil%num_stencil_elements + 1:3 * FDstencil%num_stencil_elements)
+            dxx => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
+
+            combined_stencils = dxx + dyy
+
+            call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
+
+            call apply_FDstencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, laplacian_p)
+
+            p_block%residual_matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) = &
+               p_block%f_matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) - laplacian_p
+
+         end do
+      end do
+
+      !$omp end parallel do
+
+      ! Depends on the boundary conditions this is for Dirichlet. For Neumann we need to calculate the gradient at the point.
+      call set_bc_zero_2D(p_block%residual_matrix_ptr_2D)
+
+   end subroutine calculate_residual_2D
+
    !> Subroutine to timestep using the RK4-method
    subroutine RK4(dt, comm, p_block, &
       u1_block, v1_block, &
@@ -227,48 +335,58 @@ contains
       !> RK4 combination coefficients
       real, parameter :: RK1_coef = 1.0/6.0, RK2_coef = 1.0/3.0, RK3_coef = 1.0/3.0, RK4_coef = 1.0/6.0
 
+      integer :: ii
+
       ! Use the RK4 method to find the intermediate velocity fields only!
       ! f_matrix_ptr is the rhs found from the intermediate velocity fields
 
+      !Parallize the additions and multiplications
+
       !> RK4 step 1
       call calculate_intermediate_velocity_2D(u1_block, v1_block, FDstencil)
-      u1_block%f_matrix_ptr = dt * u1_block%f_matrix_ptr ! uk1 = dt * rhs(u1)
-      v1_block%f_matrix_ptr = dt * v1_block%f_matrix_ptr ! vk1 = dt * rhs(v1)
-      u2_block%matrix_ptr = u1_block%matrix_ptr + RK2_time * u1_block%f_matrix_ptr ! u2 = u1 + 1/2 * uk1
-      v2_block%matrix_ptr = v1_block%matrix_ptr + RK2_time * v1_block%f_matrix_ptr ! v2 = v1 + 1/2 * vk1
-      call project_velocity(dt*RK2_time, comm, u2_block, v2_block, p_block, FDstencil, solver, result)
+      call scale_vector(dt, u1_block%f_matrix_ptr) ! uk1 = dt * rhs(u1)
+      call scale_vector(dt, v1_block%f_matrix_ptr) ! vk1 = dt * rhs(v1)
+      call daxpy_to_vector(dt*RK2_time, u1_block%matrix_ptr, u1_block%f_matrix_ptr, u2_block%matrix_ptr) ! u2 = u1 + 1/2 * uk1
+      call daxpy_to_vector(dt*RK2_time, v1_block%matrix_ptr, v1_block%f_matrix_ptr, v2_block%matrix_ptr) ! v2 = v1 + 1/2 * vk1
+      call project_velocity(dt*RK2_time, comm, u2_block, v2_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 2
       call calculate_intermediate_velocity_2D(u2_block, v2_block, FDstencil)
-      u2_block%f_matrix_ptr = dt * u2_block%f_matrix_ptr ! uk2 = dt * rhs(u2)
-      v2_block%f_matrix_ptr = dt * v2_block%f_matrix_ptr ! vk2 = dt * rhs(v2)
-      u3_block%matrix_ptr = u1_block%matrix_ptr + RK3_time * u2_block%f_matrix_ptr ! u3 = u1 + 1/2 * uk2
-      v3_block%matrix_ptr = v1_block%matrix_ptr + RK3_time * v2_block%f_matrix_ptr ! v3 = v1 + 1/2 * vk2
-      call project_velocity(dt*RK3_time, comm, u3_block, v3_block, p_block, FDstencil, solver, result)
+      call scale_vector(dt, u2_block%f_matrix_ptr) ! uk2 = dt * rhs(u2)
+      call scale_vector(dt, v2_block%f_matrix_ptr) ! vk2 = dt * rhs(v2)
+      call daxpy_to_vector(dt*RK3_time, u1_block%matrix_ptr, u2_block%f_matrix_ptr, u3_block%matrix_ptr) ! u3 = u1 + 1/2 * uk2
+      call daxpy_to_vector(dt*RK3_time, v1_block%matrix_ptr, v2_block%f_matrix_ptr, v3_block%matrix_ptr) ! v3 = v1 + 1/2 * vk2
+      call project_velocity(dt*RK3_time, comm, u3_block, v3_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 3
       call calculate_intermediate_velocity_2D(u3_block, v3_block, FDstencil)
-      u3_block%f_matrix_ptr = dt * u3_block%f_matrix_ptr ! uk3 = dt * rhs(u3)
-      v3_block%f_matrix_ptr = dt * v3_block%f_matrix_ptr ! vk3 = dt * rhs(v3)
-      u4_block%matrix_ptr = u1_block%matrix_ptr + RK4_time * u3_block%f_matrix_ptr ! u4 = u1 + 1 * uk3
-      v4_block%matrix_ptr = v1_block%matrix_ptr + RK4_time * v3_block%f_matrix_ptr ! v4 = v1 + 1 * vk3
-      call project_velocity(dt*RK4_time, comm, u4_block, v4_block, p_block, FDstencil, solver, result)
+      call scale_vector(dt, u3_block%f_matrix_ptr) ! uk3 = dt * rhs(u3)
+      call scale_vector(dt, v3_block%f_matrix_ptr) ! vk3 = dt * rhs(v3)
+      call daxpy_to_vector(dt*RK4_time, u1_block%matrix_ptr, u3_block%f_matrix_ptr, u4_block%matrix_ptr) ! u4 = u1 + 1 * uk3
+      call daxpy_to_vector(dt*RK4_time, v1_block%matrix_ptr, v3_block%f_matrix_ptr, v4_block%matrix_ptr) ! v4 = v1 + 1 * vk3
+      call project_velocity(dt*RK4_time, comm, u4_block, v4_block, p_block, FDstencil, solver, result) ! Project the velocity fields
 
       !> RK4 step 4
       call calculate_intermediate_velocity_2D(u4_block, v4_block, FDstencil)
-      u4_block%f_matrix_ptr = dt * u4_block%f_matrix_ptr ! uk4 = dt * rhs(u4)
-      v4_block%f_matrix_ptr = dt * v4_block%f_matrix_ptr ! vk4 = dt * rhs(v4)
+      call scale_vector(dt, u4_block%f_matrix_ptr) ! uk4 = dt * rhs(u4)
+      call scale_vector(dt, v4_block%f_matrix_ptr) ! vk4 = dt * rhs(v4)
 
       !> Combine the results
-      ! u_intermediate = u1 + 1/6 * (uk1 + 2*uk2 + 2*uk3 + uk4)
-      u1_block%matrix_ptr = u1_block%matrix_ptr + (RK1_coef * u1_block%f_matrix_ptr + &
-         RK2_coef * u2_block%f_matrix_ptr + RK3_coef * u3_block%f_matrix_ptr + RK4_coef * u4_block%f_matrix_ptr)
+      !$omp parallel do default(none) &
+      !$omp shared(u1_block, u2_block, u3_block, u4_block, v1_block, v2_block, v3_block, v4_block) &
+      !$omp private(ii)
+      do ii = 1, size(u1_block%matrix_ptr)
+         ! u_intermediate = u1 + 1/6 * (uk1 + 2*uk2 + 2*uk3 + uk4)
+         u1_block%matrix_ptr(ii) = u1_block%matrix_ptr(ii) + (RK1_coef * u1_block%f_matrix_ptr(ii) + &
+            RK2_coef * u2_block%f_matrix_ptr(ii) + RK3_coef * u3_block%f_matrix_ptr(ii) + RK4_coef * u4_block%f_matrix_ptr(ii))
 
-      ! v_intermediate = v1 + 1/6 * (vk1 + 2*vk2 + 2*vk3 + vk4)
-      v1_block%matrix_ptr = v1_block%matrix_ptr + (RK1_coef * v1_block%f_matrix_ptr + &
-         RK2_coef * v2_block%f_matrix_ptr + RK3_coef * v3_block%f_matrix_ptr + RK4_coef * v4_block%f_matrix_ptr)
+         ! v_intermediate = v1 + 1/6 * (vk1 + 2*vk2 + 2*vk3 + vk4)
+         v1_block%matrix_ptr(ii) = v1_block%matrix_ptr(ii) + (RK1_coef * v1_block%f_matrix_ptr(ii) + &
+            RK2_coef * v2_block%f_matrix_ptr(ii) + RK3_coef * v3_block%f_matrix_ptr(ii) + RK4_coef * v4_block%f_matrix_ptr(ii))
+      end do
+      !$omp end parallel do
 
-      !> Solve the Navier-Stokes in 2D using the projection method
+      ! Project the final velocity fields
       call project_velocity(dt, comm, u1_block, v1_block, p_block, FDstencil, solver, result)
 
    end subroutine RK4
@@ -289,16 +407,13 @@ contains
       ! Calculate velocity divergence
       call calculate_velocity_divergence_2D(dt, u_block, v_block, p_block, FDstencil)
 
-      if(direct_or_iterative == 1) then
-         ! Calculate pressure correction
-         call solve_poisson_problem_2D(comm, p_block, FDstencil, solver, result)
+      ! Calculate pressure correction either iteratively or directly
+      if(iterative_solver == 1) then
+         call w_cycle(solver, comm, p_block, FDstencil, result, multigrid_max_level, 1)
       else
-         p_block%f_matrix_ptr_2D(:,1) = 0.0
-         p_block%f_matrix_ptr_2D(:,p_block%extended_block_end_c(2)) = 0.0
-         p_block%f_matrix_ptr_2D(1,:) = 0.0
-         p_block%f_matrix_ptr_2D(p_block%extended_block_end_c(1),:) = 0.0
+         call set_bc_zero_2D(p_block%f_matrix_ptr_2D)
          call solve_LU_system(p_block%direct_solver_matrix_ptr_2D, p_block%f_matrix_ptr, p_block%ipiv)
-         call copy_1D_array(p_block%f_matrix_ptr, p_block%matrix_ptr)
+         call copy_vector(p_block%f_matrix_ptr, p_block%matrix_ptr)
       end if
 
       ! Update the velocity fields and correct the pressure
@@ -550,6 +665,7 @@ contains
          end if
 
          it = it + 1
+         !converged = 0
 
       end do
 
@@ -690,5 +806,26 @@ contains
       !$omp end parallel do
 
    end subroutine write_matrix_bc_2D
+
+   !> Subroutine to set the boundary of a matrix to zero
+   subroutine set_bc_zero_2D(matrix)
+      real, dimension(:,:), intent(inout) :: matrix
+
+      integer :: ii, jj
+
+      !$omp parallel do collapse(2) default(none) &
+      !$omp shared(matrix) &
+      !$omp private(ii, jj)
+      do jj = 1, size(matrix,2)
+         do ii = 1, size(matrix,1)
+            if(ii == 1 .or. ii == size(matrix,1) .or. jj == 1 .or. jj == size(matrix,2)) then
+               matrix(ii,jj) = 0.0
+            end if
+         end do
+      end do
+
+      !$omp end parallel do
+
+   end subroutine set_bc_zero_2D
 
 end module Lid_driven_cavity_benchmark_module

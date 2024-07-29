@@ -13,11 +13,11 @@ module test_Poisson_module
    use functions_module, only: FunctionPair, set_function_pointers, calculate_point
 
    use utility_functions_module, only: open_txt_file, close_txt_file, IDX_XD, IDX_XD_INV, sleeper_function, swap_pointers, &
-      swap_pointers_2D, reshape_real_1D_to_2D, print_real_2D_array, calculate_dt_from_CFL
+      swap_pointers_2D, reshape_real_1D_to_2D, print_real_2D_array, calculate_dt_from_CFL, &
+      LU_decomposition, solve_LU_system
 
    use solver_module, only: SolverPtrType, set_SystemSolver_pointer, SolverParamsType, set_SolverParamsType, &
-      ResultType, set_ResultType, print_ResultType, choose_iterative_solver, check_convergence, &
-      LU_decomposition, solve_LU_system
+      ResultType, set_ResultType, print_ResultType, choose_iterative_solver, check_convergence
    use multigrid_module, only: full_weighing_restriction_2D, bilinear_prolongation_2D, apply_correction_2D
 
    implicit none

@@ -10,8 +10,9 @@ module utility_functions_module
    public :: print_real_array, print_real_1D_array, print_real_2D_array, print_real_3D_array
    public :: print_integer_array, print_integer_1D_array, print_integer_2D_array
    public :: open_txt_file, close_txt_file, read_input_from_command_line
-   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D, copy_1D_array
+   public :: calculate_dx, calculate_CFL, calculate_dt_from_CFL, swap_pointers, swap_pointers_2D
    public :: sleeper_function
+   public :: LU_decomposition, solve_LU_system, copy_vector, scale_vector, daxpy_to_vector
 
 contains
 
@@ -418,19 +419,6 @@ contains
       ptr2 => temp_ptr
    end subroutine swap_pointers_2D
 
-   !> Subroutine to copy a 1D array to another 1D array
-   subroutine copy_1D_array(source, destination)
-      real, dimension(:), intent(in) :: source
-      real, dimension(:), intent(out) :: destination
-
-      integer :: ii
-
-      !$omp parallel do default(none) shared(source, destination) private(ii)
-      do ii = 1, size(source)
-         destination(ii) = source(ii)
-      end do
-   end subroutine copy_1D_array
-
    !> Routine to sleep for a certain amount of time. Used for debugging purposes.
    subroutine sleeper_function(sleep_time)
       implicit none
@@ -442,5 +430,83 @@ contains
          call sleep(sleep_time)
       end do
    end subroutine sleeper_function
+
+   !> Subroutine to decompose a matrix A into a lower triangular matrix L and an upper triangular matrix U (LU decomposition)
+   subroutine LU_decomposition(A, ipiv)
+      real, dimension(:,:), intent(inout) :: A
+      integer, dimension(:), intent(out) :: ipiv
+
+      integer :: num_equations, lda, info
+
+      num_equations = size(A,1) ! N
+      lda = size(A,1) ! LDA
+
+      info = 0
+
+      ! Perform LU decomposition
+      call DGETRF(num_equations, num_equations, A, lda, ipiv, info)
+      if (info /= 0) then
+         print *, "DGETRF reported an error: ", info
+         stop
+      end if
+   end subroutine LU_decomposition
+
+   !> Subroutine to solve a system of linear equations using LU decomposition
+   subroutine solve_LU_system(A,b,ipiv)
+      real, dimension(:,:), intent(in) :: A
+      real, dimension(:), intent(inout) :: b
+      integer, dimension(:), intent(in) :: ipiv
+
+      integer :: num_equations, num_rhs, lda, ldb, info
+
+      num_equations = size(A,1) ! N
+      num_rhs = 1 ! NRHS
+      lda = size(A,1) ! LDA
+      ldb = size(b,1) ! LDB
+
+      info = 0
+
+      ! Solve the system using the LU factors
+      call DGETRS('N', num_equations, num_rhs, A, lda, ipiv, b, ldb, info)
+      if (info /= 0) then
+         print *, "DGETRS reported an error: ", info
+         stop
+      end if
+   end subroutine solve_LU_system
+
+   !> Subroutine to copy a vector to another vector using dcopy
+   subroutine copy_vector(source, destination)
+      real, dimension(:), intent(in) :: source
+      real, dimension(:), intent(out) :: destination
+
+      call DCOPY(size(source), source, 1, destination, 1)
+   end subroutine copy_vector
+
+   !> Subroutine to scale a vector by a scalar using dscal
+   subroutine scale_vector(scalar, vector)
+      real, intent(in) :: scalar
+      real, dimension(:), intent(inout) :: vector
+
+      call DSCAL(size(vector), scalar, vector, 1)
+   end subroutine scale_vector
+
+   !> Subroutine to v = x + a * y
+   subroutine daxpy_to_vector(a,x,y,v)
+      real, intent(in) :: a
+      real, dimension(:), intent(in) :: x, y
+      real, dimension(:), intent(out) :: v
+
+      integer :: ii
+
+      !$omp parallel do default(none) &
+      !$omp shared(x,y,v,a) &
+      !$omp private(ii)
+      do ii = 1, size(x)
+         v(ii) = x(ii) + a * y(ii)
+      end do
+
+      !$omp end parallel do
+
+   end subroutine daxpy_to_vector
 
 end module utility_functions_module
