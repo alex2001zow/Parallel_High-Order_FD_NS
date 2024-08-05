@@ -34,25 +34,25 @@ module TravellingWave_2D_module
    real, parameter :: Ls = 1.0, Lx = 31.0
 
    !> Wave parameters
-   real, parameter :: t_0 = 0.0, t_1 = 0.75, t_steps = 10, dt = (t_1 - t_0)/(t_steps+1e-6)
+   real, parameter :: t_0 = 0.0, t_1 = 0.75, t_steps = 1, dt = (t_1 - t_0)/(t_steps)
    real :: current_t = t_0
    real, parameter :: kh = 1.0, lwave = Lx, kwave = 2.0*pi/lwave, hd = kh/kwave, cwave = sqrt(g/kwave*tanh(kh)), &
       Twave = lwave/cwave, wwave=2.0*pi/Twave, Hwave = 0.02
 
    !> Grid parameters
-   integer, dimension(ndims_2D), parameter :: grid_size = [16,16], processor_dims = [1,1]
+   integer, dimension(ndims_2D), parameter :: grid_size = [128,128], processor_dims = [1,1]
    logical, dimension(ndims_2D), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims_2D), parameter :: domain_begin = [0.0,0.0], domain_end = [Lx,Ls]
-   integer, dimension(ndims_2D), parameter :: stencil_sizes = 3
+   integer, dimension(ndims_2D), parameter :: stencil_sizes = 7
    integer, dimension(ndims_2D), parameter :: uv_ghost_begin = [1,1], uv_ghost_end = [1,1]
    integer, dimension(ndims_2D), parameter :: p_ghost_begin = [1,1], p_ghost_end = [1,1]
    integer, dimension(ndims_2D), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
    !> Multigrid solver parameters
-   integer, parameter:: solve_iterativly = 1, Jacobi_or_GS = 2
-   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 1.0
-   integer, parameter :: max_iter = 1 * (1.0 + 1.0 - omega), multigrid_max_level = 1
+   integer, parameter:: solve_iterativly = 1, Jacobi_or_GS = 1
+   real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
+   integer, parameter :: max_iter = 200000, multigrid_max_level = 1
 
    public :: TravelingWave_Poisson_2D_main
 
@@ -111,6 +111,7 @@ contains
          current_t = current_t + dt
          call one_timestep(dt, result_params, solver_params, comm_1D_params, comm_2D_params, &
             eta_params, u_params, v_params, p_params, FDstencil_1D_params, FDstencil_2D_params)
+         call print_ResultType(result_params)
          write(*,*) "Time: ", current_t, "Iterations: ", iter
       end do
 
@@ -187,7 +188,6 @@ contains
       ! Run a W-cycle
       call w_cycle(solver, comm_2D, u_block, v_block, p_block, &
          FDstencil_2D, result, multigrid_max_level, 1)
-      call print_ResultType(result)
 
       ! Correct the velocity field with the pressure field
       call correct_velocity_field(u_block, v_block, p_block, FDstencil_2D)
@@ -346,7 +346,7 @@ contains
 
       type(block_type) :: p_block_coarse
 
-      write(0,*) "Multigrid level: ", level
+      !write(0,*) "Multigrid level: ", level
 
       ! If max level is reached we solve the pressure poisson equation
       if(level == max_level) then
@@ -532,7 +532,7 @@ contains
                if(mod(ii+jj,2) /= color) cycle ! Avoid the if-statement somehow...
                p_local_indices = [ii,jj]
 
-               f_val = p_block%f_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
+               f_val = 0.0!p_block%f_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
                u0_val = p_block%matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
                r0_val = p_block%residual_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
 
@@ -590,7 +590,7 @@ contains
          do ii = p_block%block_begin_c(1)+1, p_block%block_end_c(1)
             p_local_indices = [ii,jj]
 
-            f_val = p_block%f_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
+            f_val = 0!p_block%f_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
             u0_val = p_block%matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
             r0_val = p_block%residual_matrix_ptr_2D(p_local_indices(1),p_local_indices(2))
 
@@ -601,15 +601,13 @@ contains
             dss => coefficients(3 * FDstencil%num_stencil_elements + 1:4 * FDstencil%num_stencil_elements)
 
             combined_stencils = dxx + dss/(hd*hd)
-
             call reshape_real_1D_to_2D(FDstencil%stencil_sizes, combined_stencils, combined_stencils_2D)
-
             call update_value_from_stencil_2D(combined_stencils_2D, p_block%matrix_ptr_2D, p_local_indices, alpha, beta, &
                f_val, u1_val, r1_val)
 
             u1_val = (1.0 - omega) * u0_val + omega * u1_val
 
-            p_block%matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) = u1_val
+            p_block%temp_matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) = u1_val
             local_u_diff_norm = local_u_diff_norm + (abs(u1_val - u0_val)**2)
             local_u_norm = local_u_norm + (abs(u1_val)**2)
 
@@ -765,10 +763,10 @@ contains
 
             call sigma_2_z(sigma, hd, z)
 
-            !if(p_global_indices(1) == 0 .or. p_global_indices(1) == p_block%extended_grid_size(1)-1 .or. &
-            !p_global_indices(2) == 0 .or. p_global_indices(2) == p_block%extended_grid_size(2)-1) then
-            p_block%matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) = pp_d
-            !end if
+            if(p_global_indices(1) == 0 .or. p_global_indices(1) == p_block%extended_grid_size(1)-1 .or. &
+               p_global_indices(2) == 0 .or. p_global_indices(2) == p_block%extended_grid_size(2)-1) then
+               p_block%matrix_ptr_2D(p_local_indices(1),p_local_indices(2)) = pp_d
+            end if
 
             ! ! left wall
             ! if(p_global_indices(1) == 0) then

@@ -13,6 +13,7 @@ subroutine run_simulation()
    use block_test_module, only: block_test_main
    use test_Poisson_module, only: Poisson_main
    use Lid_driven_cavity_benchmark_module, only: Lid_driven_cavity_benchmark_2D
+   use flow_around_cyliner_module, only: flow_around_cylinder_main
    use TravellingWave_2D_module, only: TravelingWave_Poisson_2D_main
    implicit none
 
@@ -21,6 +22,7 @@ subroutine run_simulation()
    ! Set the number of threads to the number of physical cores. Hopefully no hyperthreading.
    num_physical_cores = omp_get_num_procs()
    call omp_set_num_threads(num_physical_cores)
+   !call omp_set_num_threads(8)
 
    ! Initialize MPI
    call initialize_mpi_wrapper(rank, world_size)
@@ -32,6 +34,7 @@ subroutine run_simulation()
    ! Main functions
    !call Poisson_main(rank, world_size)
    call Lid_driven_cavity_benchmark_2D(rank, world_size)
+   !call flow_around_cylinder_main(rank, world_size)
    !call TravelingWave_Poisson_2D_main(rank, world_size)
 
    ! Finalize MPI

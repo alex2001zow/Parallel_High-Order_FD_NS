@@ -41,7 +41,7 @@ LDFLAGS = -lm -lopenblas -lscalapack $(OPENMPFLAGS) #$(SANITIZERFLAGS)
 EXEC = $(EXEC_DIR)/$(PROGNAME).out
 
 # Files to compile
-FILES = utility_functions_module.f90 constants_module.f90 mpi_wrapper_module.f90 functions_module.f90 comm_module.f90 block_module.f90 FD_module.f90 multigrid_module.f90 Poisson_functions.f90 solver_module.f90 FD_test_module.f90 block_test_module.f90 test_Poisson_module.f90 Lid_driven_cavity_benchmark.f90 TravellingWave_2D.f90 main.f90
+FILES = utility_functions_module.f90 constants_module.f90 mpi_wrapper_module.f90 functions_module.f90 comm_module.f90 block_module.f90 FD_module.f90 multigrid_module.f90 Poisson_functions.f90 solver_module.f90 FD_test_module.f90 block_test_module.f90 test_Poisson_module.f90 Lid_driven_cavity_benchmark.f90 flow_around_cylinder.f90 TravellingWave_2D.f90 main.f90
 
 # Source files with directory prefix
 SRCS = $(addprefix $(SRC_DIR)/,$(FILES))

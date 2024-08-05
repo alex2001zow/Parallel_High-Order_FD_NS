@@ -31,11 +31,11 @@ module test_Poisson_module
    integer, dimension(ndims*num_derivatives), parameter :: derivatives = [2,0,0,2] ! dxx, dyy
 
    !> Grid parameters
-   integer, dimension(ndims), parameter :: grid_size = [64,64], processor_dims = [1,1]
+   integer, dimension(ndims), parameter :: grid_size = 2048, processor_dims = [1,1]
    logical, dimension(ndims), parameter :: periods = [.false., .false.]
    logical, parameter :: reorder = .true.
    real, dimension(ndims), parameter :: domain_begin = [-10.0*pi,-10.0*pi], domain_end = [10.0*pi,10.0*pi]
-   integer, dimension(ndims), parameter :: stencil_sizes = 5
+   integer, dimension(ndims), parameter :: stencil_sizes = 3
    integer, dimension(ndims), parameter :: ghost_begin = [0,0], ghost_end = [0,0]
    integer, dimension(ndims), parameter :: stencil_begin = stencil_sizes/2, stencil_end = stencil_sizes/2
 
@@ -45,9 +45,9 @@ module test_Poisson_module
    real :: t_steps, dt
 
    !> Solver parameters
-   integer, parameter :: solve_iterativly = 0, Jacobi_or_GS = 1
+   integer, parameter :: solve_iterativly = 1, Jacobi_or_GS = 1
    real, parameter :: tol = (1e-12)**2, div_tol = 1e-1, omega = 0.8
-   integer, parameter :: max_iter = 10 * (2.0 - omega), multigrid_max_level = 4
+   integer, parameter :: max_iter = 10, multigrid_max_level = 8
 
    public :: Poisson_main
 
@@ -78,10 +78,8 @@ contains
 
       call create_finite_difference_stencils(ndims, num_derivatives, derivatives, stencil_sizes, FDstencil_params)
 
-      !call calculate_dt_from_CFL(1.0, [1.0,1.0], data_block%extended_grid_dx, dt)
-      !t_steps = (t_end - t_begin) / dt + 1
       t_steps = 1
-      dt = (t_1 - t_0) / t_steps
+      dt = (t_1-t_0)/t_steps
 
       ! Time the program
       result_array_with_timings(1) = MPI_WTIME()
@@ -118,9 +116,13 @@ contains
       call all_reduce_mpi_wrapper(result_array_with_timings(3), result_array_with_timings(4), 1, &
          int(MPI_DOUBLE_PRECISION,kind=8), int(MPI_SUM,kind=8), comm_params%comm)
 
+      if(solve_iterativly == 1) then
+         call Poisson_residual_2D(0, 1, data_block, FDstencil_params)
+      end if
+
       ! Write out the result and timings from the master rank
       if(rank == MASTER_RANK) then
-         write(*,"(A, F10.3, A)") "Total wall time / processors: ", result_array_with_timings(4)/world_size, " seconds"
+         write(*,"(A, F10.3, A)") "Total wall time: ", result_array_with_timings(4), " seconds"
       end if
 
       ! Write out our setup to a file. Just for debugging purposes
